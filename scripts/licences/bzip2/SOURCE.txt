@@ -1,0 +1,4 @@
+LICENSE: bzip2's licence, from the bzip2-1.0.8 tag of the upstream repository:
+https://sourceware.org/git/?p=bzip2.git;a=blob_plain;f=LICENSE;hb=bzip2-1.0.8
+SHA-256 c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3, fetched 2026-11-05.
+Used for the libbzip2 that the Windows Python build links statically into _bz2.pyd.

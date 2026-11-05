@@ -1,0 +1,4 @@
+LICENSE.txt: OpenSSL's own licence file (the Apache License 2.0 text), from the openssl-3.0.16 tag:
+https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.16/LICENSE.txt
+SHA-256 7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a, fetched 2026-11-05.
+OpenSSL 3.0 has no NOTICE file. Used for the bundled libssl/libcrypto (OpenSSL 3.0.x from the Python build).

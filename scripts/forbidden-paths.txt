@@ -1,0 +1,11 @@
+*.jks
+*.keystore
+keystore.properties
+*.img
+*.dmg
+*.zip
+StudioPocket-*.apk
+stock
+work*
+.env
+.env.*

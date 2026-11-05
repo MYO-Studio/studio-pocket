@@ -1,0 +1,4 @@
+COPYING: expat's licence (MIT), from the R_2_7_1 tag:
+https://raw.githubusercontent.com/libexpat/libexpat/R_2_7_1/expat/COPYING
+SHA-256 31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87, fetched 2026-11-05.
+Used for the expat that CPython links statically into pyexpat.

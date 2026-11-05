@@ -1,0 +1,15 @@
+# mtkclient itself is not here: it is pinned to commit 7cb40e7 (the commit tested on hardware, docs/tested-hardware.md;
+# the eight patches match it exactly), and pip's hash-checking mode refuses VCS requirements.
+# setup-mtkclient-venv.sh installs it from GitHub's archive tarball for that commit, checked
+# against the SHA-256 recorded in the script, with --no-deps. These are its dependencies, locked.
+pyserial==3.5
+pyusb==1.3.1
+pycryptodome==4.1.0
+pycryptodomex==3.24.1
+colorama==0.4.6
+pyinstaller==6.22.3
+# pyinstaller's Windows-only dependencies. pip-compile resolves for the host it runs on (macOS),
+# so without these the lock would miss them and the Windows beta build would fail under
+# --require-hashes. Pure-Python and harmless on macOS/Linux.
+pefile
+pywin32-ctypes

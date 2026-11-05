@@ -1,0 +1,4 @@
+LICENSE: libffi's licence (MIT), from the v3.4.4 tag:
+https://raw.githubusercontent.com/libffi/libffi/v3.4.4/LICENSE
+SHA-256 2c9c2acb9743e6b007b91350475308aee44691d96aa20eacef8e199988c8c388, fetched 2026-11-05.
+Used for libffi-8.dll, which the Windows Python build ships beside _ctypes.

@@ -1,0 +1,6 @@
+NOTICE: the MIT Student Information Processing Board permission notices of e2fsprogs v1.44.5's lib/et
+(lib/et/error_message.c, SHA-256 abc9960a60e679a8b5aa46ecf3d0d628a67c914872e217155865b44f62188768) and lib/ss
+(lib/ss/ss.h, SHA-256 5a0f380ec4f973094958ad4b2dae4e9a46acf3caa66e2616b9e8279c62fb4d39), from
+https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git/plain/lib/et/error_message.c?h=v1.44.5 and .../lib/ss/ss.h?h=v1.44.5,
+with the comment marks removed; nothing else changed. Fetched 2026-11-05.
+Used for the Windows e2fsprogs bundle's cygcom_err-2.dll and cygss-2.dll (e2fsprogs' NOTICE only names their MIT-style licence).

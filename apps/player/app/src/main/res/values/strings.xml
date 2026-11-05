@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Studio Pocket</string>
+    <string name="title">Studio Pocket</string>
+    <string name="waiting_for_key">press any key…</string>
+    <string name="no_playlists">No playlists yet. Connect to the computer to sync.</string>
+    <string name="connected_to_computer">Connected to computer</string>
+    <string name="sync_in_progress">sync in progress</string>
+    <plurals name="tracks">
+        <item quantity="one">%d track</item>
+        <item quantity="other">%d tracks</item>
+    </plurals>
+</resources>

@@ -1,0 +1,475 @@
+# Builds every release file for a v* tag and attaches them to a DRAFT GitHub Release; a person
+# reads the draft and publishes it. Release files are never replaced after publishing: a fix
+# means a new tag.
+#
+#   tarballs  studio-pocket-<pkg>-<v>.tgz for every packages/* (pnpm pack, after the tests pass; the
+#             desktop pins them by URL), each with LICENSE and COPYING.commercial
+#   tools     e2fsprogs-{macos-universal,linux-x64,windows-x64}.tar.gz, mtkclient-{macos-arm64,windows-x64}.tar.gz,
+#             e2fsprogs-cygwin-src.tar.gz, and an SPDX SBOM (sbom-<file>.spdx.json) per bundle; all unsigned
+#   source    mtkclient-source.tar.gz (upstream's archive less the files no bundle ships: WinFsp's DLLs and
+#             mtkclient/Loader/, MediaTek's download agents and the OEM preloaders; with SOURCE-INFO.txt),
+#             the upstream e2fsprogs-<version>.tar.gz (GPL corresponding source)
+#             and libusb-<version>-source.tar.bz2 (LGPL source of the libusb in the macOS mtkclient bundle)
+#   player    StudioPocket-<versionName>.apk and player.json, signed with the release key
+#   publish   SHA256SUMS over every file, then the draft pre-release with RELEASE-NOTES.md as its text
+#
+# Secrets: only the player job can read them (the `release` environment), and only the step that
+# writes the keystore gets them, through env. Every action is pinned to a full commit SHA; the tag
+# it was resolved from is in the comment.
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  tarballs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0 (pnpm version from package.json's packageManager)
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - name: Set every package's version to the tag's (not committed)
+        run: node scripts/release/set-version.mjs "${GITHUB_REF_NAME#v}"
+      - run: sudo apt-get update && sudo apt-get install -y e2fsprogs   # firmware-tools' image tests call debugfs/mke2fs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      # The tagged commit's own tests: a tag on a commit CI never saw does not release.
+      - run: pnpm -r test
+      # Each tarball carries the licence texts (every package's "files" lists LICENSE and
+      # COPYING.commercial; firmware-tools also lists Y2Player-MIT.txt, the notice for its MIT ports).
+      - name: Pack every public package
+        run: |
+          set -euo pipefail
+          mkdir -p build/tarballs
+          cp docs/licensing/Y2Player-MIT.txt packages/firmware-tools/
+          for d in packages/*/; do
+            [ -f "$d/package.json" ] || continue
+            cp LICENSE COPYING.commercial "$d"
+            (cd "$d" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/build/tarballs")
+          done
+          for f in build/tarballs/*.tgz; do
+            entries="$(tar -tzf "$f")"
+            need="LICENSE COPYING.commercial"
+            case "$f" in *firmware-tools*) need="$need Y2Player-MIT.txt" ;; esac
+            for l in $need; do
+              grep -qx "package/$l" <<< "$entries" || { echo "$f has no $l"; exit 1; }
+            done
+          done
+          want="$(find packages -mindepth 2 -maxdepth 2 -name package.json | wc -l)"
+          got="$(find build/tarballs -name '*.tgz' | wc -l)"
+          ls -l build/tarballs
+          [ "$got" -eq "$want" ] || { echo "packed $got tarballs for $want packages"; exit 1; }
+          for f in build/tarballs/*.tgz; do
+            case "$f" in *"-${GITHUB_REF_NAME#v}.tgz") ;; *) echo "$f does not carry the tag's version"; exit 1 ;; esac
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tarballs
+          path: build/tarballs/*.tgz
+          if-no-files-found: error
+
+  tools:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: macos-latest, bundle: macos, e2fs_asset: e2fsprogs-macos-universal, mtk_asset: mtkclient-macos-arm64 }
+          - { os: ubuntu-latest, bundle: linux, e2fs_asset: e2fsprogs-linux-x64, mtk_asset: '' }
+          - { os: windows-latest, bundle: windows, e2fs_asset: e2fsprogs-windows-x64, mtk_asset: mtkclient-windows-x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults: { run: { shell: bash } }
+    env:
+      E2FS_BUNDLE_DIR: build/e2fsprogs/${{ matrix.bundle }}
+      MTK_BUNDLE_DIR: build/mtkclient
+      E2FS_ASSET: ${{ matrix.e2fs_asset }}
+      MTK_ASSET: ${{ matrix.mtk_asset }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22 }
+      - run: mkdir -p dist
+
+      # e2fsprogs: the pinned upstream tarball on macOS (universal) and Linux; Cygwin's package on Windows.
+      - if: runner.os == 'Windows'
+        uses: cygwin/cygwin-install-action@006ad0b0946ca6d0a3ea2d4437677fa767392401 # v4
+        with: { packages: e2fsprogs, add-to-path: false }
+      - if: runner.os != 'Windows'
+        name: e2fsprogs bundle
+        run: OUT_DIR="$E2FS_BUNDLE_DIR" scripts/build-e2fsprogs.sh
+      - if: runner.os == 'Windows'
+        name: e2fsprogs bundle (Cygwin)
+        run: OUT_DIR="$E2FS_BUNDLE_DIR" scripts/build-e2fsprogs-windows.sh
+      - name: e2fsprogs release gate
+        run: node scripts/check-e2fsprogs-bundle.mjs
+      - run: cat "$E2FS_BUNDLE_DIR/BUNDLE-INFO.json"
+      # The corresponding source of the Windows bundle: the source package of every Cygwin package the
+      # bundle carries a file from (e2fsprogs for the tools, and the package of each DLL: cygwin,
+      # libintl8, ...), at the version the bundle was built from (cygcheck's report, kept in
+      # BUNDLE-INFO.json's "packages"). Each binary package's setup.ini block names its source
+      # package ("source:"), so packages built from one source (libblkid1, libuuid1) share one file.
+      # cygwin-install-action has no option for source packages, so they come from
+      # https://mirrors.kernel.org/sourceware/cygwin/, the mirror the action installs from by default,
+      # each checked against the SHA-512 that the mirror's x86_64/setup.ini lists for that version.
+      - if: runner.os == 'Windows'
+        name: Cygwin source packages (e2fsprogs-cygwin-src.tar.gz)
+        run: |
+          set -euo pipefail
+          MIRROR=https://mirrors.kernel.org/sourceware/cygwin
+          W=build/cygwin-src
+          S="$W/e2fsprogs-cygwin-src"
+          mkdir -p "$S"
+          curl -fsSL --retry 2 -o "$W/setup.ini" "$MIRROR/x86_64/setup.ini"
+          node -e 'const p = require(require("path").resolve(process.argv[1])).packages || {};
+            for (const [name, version] of Object.entries(p)) console.log(name + " " + version);' \
+            "$E2FS_BUNDLE_DIR/BUNDLE-INFO.json" > "$W/packages.txt"
+          cat "$W/packages.txt"
+          if ! grep -q '^e2fsprogs ' "$W/packages.txt" || ! grep -q '^cygwin ' "$W/packages.txt"; then
+            echo "BUNDLE-INFO.json does not name both the e2fsprogs and cygwin package versions"; exit 1
+          fi
+          : > "$S/SOURCES.txt"
+          while read -r pkg ver; do
+            # The "source:" line of this package's block for exactly this version (current, [prev] or [test]).
+            line="$(awk -v p="@ $pkg" -v v="version: $ver" '
+              $0 == p { s = 1; next }
+              /^@ / { s = 0 }
+              s && /^\[/ { m = 0 }
+              s && $0 == v { m = 1 }
+              s && m && /^source: / { print; exit }' "$W/setup.ini")"
+            [ -n "$line" ] || { echo "no source entry for $pkg $ver in $MIRROR/x86_64/setup.ini"; exit 1; }
+            read -r _ rel _ sha512 <<< "$line"
+            file="$S/$(basename "$rel")"
+            [ -f "$file" ] || curl -fsSL --retry 2 -o "$file" "$MIRROR/$rel"
+            echo "$sha512  $file" | sha512sum -c -
+            echo "$pkg $ver $MIRROR/$rel sha512:$sha512" >> "$S/SOURCES.txt"
+          done < "$W/packages.txt"
+          tar -czf dist/e2fsprogs-cygwin-src.tar.gz -C "$W" e2fsprogs-cygwin-src
+          tar -tzvf dist/e2fsprogs-cygwin-src.tar.gz
+
+      # mtkclient (macOS and Windows): build-mtkclient.sh first runs scripts/setup-mtkclient-venv.sh
+      # (a fresh venv from the hash lock and the checksummed commit archive), then bundles and gates it.
+      - if: matrix.mtk_asset != ''
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with: { python-version: '3.12' }
+      - if: runner.os == 'macOS'
+        run: brew install libusb   # bundled by PyInstaller; its LGPL text is copied into licences/, its version must match scripts/libusb-pin.json
+      - if: matrix.mtk_asset != ''
+        name: mtkclient bundle (sets up the locked venv first)
+        env:
+          # python3 can resolve to the Microsoft Store stub on Windows; elsewhere the script picks python3.
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || '' }}
+        run: OUT_DIR="$MTK_BUNDLE_DIR" scripts/build-mtkclient.sh
+      - if: matrix.mtk_asset != ''
+        name: mtkclient release gate (runs the bundled mtk as the capability probe)
+        run: node scripts/check-mtkclient-bundle.mjs
+      - if: matrix.mtk_asset != ''
+        run: cat "$MTK_BUNDLE_DIR/BUNDLE-INFO.json"
+      # The source job attaches libusb's source for the version in scripts/libusb-pin.json; the
+      # bundled libusb must be that version, or the attached source would not correspond to it.
+      - if: runner.os == 'macOS' && matrix.mtk_asset != ''
+        name: Bundled libusb matches scripts/libusb-pin.json
+        run: |
+          set -euo pipefail
+          bundled="$(jq -r .libusb "$MTK_BUNDLE_DIR/BUNDLE-INFO.json")"
+          pinned="$(jq -r .version scripts/libusb-pin.json)"
+          [ "$bundled" = "$pinned" ] || { echo "::error::the bundle carries libusb $bundled but scripts/libusb-pin.json pins $pinned (update the pin's version and sha256)"; exit 1; }
+          echo "libusb $bundled"
+
+      # Archives: each bundle's contents at the archive root, with its licences/ folder (the licence
+      # texts the build scripts copy in and the gates check) and BUNDLE-INFO.json.
+      - name: Archive the bundles
+        run: |
+          set -euo pipefail
+          export COPYFILE_DISABLE=1   # macOS tar: no AppleDouble ._* entries for extended attributes
+          pack() {  # pack <bundle dir> <asset name>
+            [ -f "$1/BUNDLE-INFO.json" ] || { echo "$1 has no BUNDLE-INFO.json"; exit 1; }
+            [ -n "$(ls -A "$1/licences" 2>/dev/null)" ] || { echo "$1 has no licence texts in licences/"; exit 1; }
+            tar -czf "dist/$2.tar.gz" -C "$1" .
+            echo "dist/$2.tar.gz: $(tar -tzf "dist/$2.tar.gz" | wc -l) entries"
+          }
+          pack "$E2FS_BUNDLE_DIR" "$E2FS_ASSET"
+          if [ -n "$MTK_ASSET" ]; then
+            # The asset name states the architecture; make sure the runner built that one.
+            if [ "$RUNNER_OS" = macOS ] && [ "$(uname -m)" != arm64 ]; then echo "expected an arm64 macOS runner for $MTK_ASSET"; exit 1; fi
+            pack "$MTK_BUNDLE_DIR" "$MTK_ASSET"
+          fi
+          # The Windows e2fsprogs bundle carries cygwin1.dll, so it must carry the LGPL-3.0 text.
+          if [ "$RUNNER_OS" = Windows ] && ! grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$E2FS_BUNDLE_DIR/licences/LGPL-3.0.txt"; then
+            echo "$E2FS_BUNDLE_DIR/licences/LGPL-3.0.txt is missing"; exit 1
+          fi
+          ls -l dist
+      - name: SBOM for the e2fsprogs bundle
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: ${{ env.E2FS_BUNDLE_DIR }}
+          format: spdx-json
+          output-file: dist/sbom-${{ matrix.e2fs_asset }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - if: matrix.mtk_asset != ''
+        name: SBOM for the mtkclient bundle
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: ${{ env.MTK_BUNDLE_DIR }}
+          format: spdx-json
+          output-file: dist/sbom-${{ matrix.mtk_asset }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tools-${{ matrix.bundle }}
+          path: dist/
+          if-no-files-found: error
+
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - run: mkdir -p dist
+      # mtkclient's corresponding source: the upstream archive of the pinned commit, the patches, the
+      # venv and build scripts, the lock and the licence texts the build copies in. The archive is
+      # upstream's with the files no bundle ships taken out, and nothing else changed: WinFsp's DLLs
+      # (Library/Filesystem/bin/winfsp-*.dll; only mtkclient's FUSE mount loads them, and every bundle
+      # leaves them out) and every file under mtkclient/Loader/ (MediaTek's download agents and the OEM
+      # preloader images; build-mtkclient.sh removes the folder, and the installer fetches the one agent
+      # the Y2 needs from upstream at first use). They are MediaTek's, WinFsp's and device makers'
+      # binaries, not mtkclient's source, and we do not distribute them, so they are not part of our
+      # corresponding source. scripts/tar-remove-members.py copies the uncompressed archive block for block without
+      # those members, so every other header (the pax global header with the commit id included) and
+      # every other member is byte for byte upstream's; SOURCE-INFO.txt records the upstream archive's
+      # SHA-256 and every path removed.
+      - name: mtkclient-source.tar.gz
+        run: |
+          set -euo pipefail
+          commit="$(jq -r .commit scripts/mtkclient-pin.json)"
+          sha256="$(jq -r .sha256 scripts/mtkclient-pin.json)"
+          W=build/source
+          S="$W/mtkclient-source"
+          mkdir -p "$S/scripts"
+          upstream="$W/mtkclient-$commit.upstream.tar.gz"
+          curl -fsSL --retry 2 -o "$upstream" "https://github.com/bkerler/mtkclient/archive/$commit.tar.gz"
+          echo "$sha256  $upstream" | sha256sum -c -
+          gzip -dc "$upstream" > "$W/upstream.tar"
+          tar -tf "$W/upstream.tar" > "$W/members.txt"
+          pkg="mtkclient-$commit/mtkclient"
+          # Every file under Loader/ (directories stay, empty): the *.bin agents and preloaders, and the
+          # few preloader images with another suffix.
+          { grep -E "^$pkg/Library/Filesystem/bin/winfsp-[^/]*\.dll$" "$W/members.txt" || true
+            grep -E "^$pkg/Loader/.*[^/]$" "$W/members.txt" || true; } > "$W/removed.txt"
+          grep -q '/winfsp-' "$W/removed.txt" || { echo "no WinFsp DLLs in upstream's archive: check the paths above"; exit 1; }
+          grep -qx "$pkg/Loader/MTK_AllInOne_DA_mt6590.bin" "$W/removed.txt" || { echo "the download agent is not where upstream's archive was expected to have it: check the paths above"; exit 1; }
+          if grep -E "^$pkg/Loader/" "$W/removed.txt" | grep -Ev '\.bin($|\.)'; then echo "(files under Loader/ that are not .bin images: listed above, removed too)"; fi
+          python3 -I scripts/tar-remove-members.py "$W/upstream.tar" "$W/removed.txt" "$W/pruned.tar"
+          # What is left must be exactly upstream's members less the removed ones.
+          tar -tf "$W/pruned.tar" > "$W/members-after.txt"
+          diff <(grep -vxF -f "$W/removed.txt" "$W/members.txt") "$W/members-after.txt"
+          archive="$S/mtkclient-$commit-pruned.tar.gz"
+          gzip -9n -c "$W/pruned.tar" > "$archive"
+          cp -R scripts/mtkclient-pin.json scripts/patch-mtkclient.py scripts/setup-mtkclient-venv.sh \
+            scripts/build-mtkclient.sh scripts/mtkclient-notices.py scripts/tar-remove-members.py \
+            scripts/mtkclient-requirements.txt scripts/mtkclient-requirements.in scripts/licences "$S/scripts/"
+          {
+            echo "Upstream: https://github.com/bkerler/mtkclient at commit $commit"
+            echo "Built from: GitHub's archive of that commit, https://github.com/bkerler/mtkclient/archive/$commit.tar.gz,"
+            echo "  SHA-256 $sha256 (scripts/mtkclient-pin.json)"
+            echo "This copy: mtkclient-$commit-pruned.tar.gz, SHA-256 $(sha256sum "$archive" | cut -d' ' -f1):"
+            echo "  that archive with the $(wc -l < "$W/removed.txt" | tr -d ' ') paths below removed (scripts/tar-remove-members.py); every"
+            echo "  other header and member is byte for byte upstream's. Studio Pocket's mtkclient bundles do not contain these files:"
+            echo "  WinFsp's DLLs (used only by mtkclient's FUSE mount) and everything under mtkclient/Loader/:"
+            echo "  MediaTek's download agents and the OEM preloader images. They are MediaTek's, WinFsp's and device"
+            echo "  makers' binaries, not mtkclient's source, and we do not distribute them. The Studio Pocket installer"
+            echo "  downloads the one agent the Y2 needs (Loader/MTK_AllInOne_DA_mt6590.bin) from upstream mtkclient at"
+            echo "  this commit on the user's machine, checked against packages/firmware-tools/src/da-pin.json; no"
+            echo "  preloader is needed or distributed."
+            echo
+            echo "Removed:"
+            sed 's/^/  /' "$W/removed.txt"
+          } > "$S/SOURCE-INFO.txt"
+          cat > "$S/README.txt" <<EOF
+          mtkclient as bundled by Studio Pocket ${GITHUB_REF_NAME} (GPL-3.0).
+
+          mtkclient-$commit-pruned.tar.gz  upstream https://github.com/bkerler/mtkclient at commit $commit:
+                                    GitHub's archive of it (SHA-256 $sha256, scripts/mtkclient-pin.json)
+                                    without the files no bundle ships (SOURCE-INFO.txt lists them)
+          scripts/                  the Studio Pocket patches (patch-mtkclient.py), the venv and bundle
+                                    scripts, the hash-locked requirements and the licence texts
+
+          To rebuild from this archive alone: put scripts/ in a Studio Pocket checkout of the same tag
+          and run, from the checkout,
+            MTKCLIENT_ARCHIVE=<this folder>/mtkclient-$commit-pruned.tar.gz scripts/build-mtkclient.sh
+          setup-mtkclient-venv.sh then installs mtkclient from this archive instead of downloading
+          upstream's (it accepts either the SHA-256 above or this archive's, read from the
+          SOURCE-INFO.txt beside it, so keep the two together), and
+          build-mtkclient.sh removes the same files from the bundle (Loader/, WinFsp). Without
+          MTKCLIENT_ARCHIVE the venv script downloads upstream's archive, checked against the SHA-256 above.
+          The bundle has no download agent either way: the installer fetches it at first use.
+          EOF
+          tar -czf dist/mtkclient-source.tar.gz -C "$W" mtkclient-source
+          tar -tzvf dist/mtkclient-source.tar.gz | grep -v '/scripts/licences/'
+          head -12 "$S/SOURCE-INFO.txt"
+      # The pinned upstream e2fsprogs tarball, unmodified, checked against the hash in build-e2fsprogs.sh.
+      - name: e2fsprogs upstream tarball
+        run: |
+          set -euo pipefail
+          # VERSION, URL and SHA256 exactly as build-e2fsprogs.sh defines them.
+          eval "$(grep -E '^(VERSION|URL|SHA256)=' scripts/build-e2fsprogs.sh)"
+          out="dist/e2fsprogs-$VERSION.tar.gz"
+          curl -fsSL --retry 2 -o "$out" "$URL"
+          echo "$SHA256  $out" | sha256sum -c -
+      # libusb (LGPL-2.1, bundled in the macOS mtkclient archive): upstream's release tarball for the
+      # version in scripts/libusb-pin.json, checked against its SHA-256. The tools job fails when the
+      # bundled libusb is not that version.
+      - name: libusb source tarball
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version scripts/libusb-pin.json)"
+          sha256="$(jq -r .sha256 scripts/libusb-pin.json)"
+          out="dist/libusb-$version-source.tar.bz2"
+          curl -fsSL --retry 2 -o "$out" "https://github.com/libusb/libusb/releases/download/v$version/libusb-$version.tar.bz2"
+          echo "$sha256  $out" | sha256sum -c -
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source
+          path: dist/
+          if-no-files-found: error
+
+  player:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release   # the only job that can read the release secrets
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with: { packages: platform-tools }   # the default list names 'tools', which sdkmanager no longer has
+      - name: Write the release keystore
+        env:
+          PLAYER_KEYSTORE_B64: ${{ secrets.PLAYER_KEYSTORE_B64 }}
+          PLAYER_KEYSTORE_PASSWORD: ${{ secrets.PLAYER_KEYSTORE_PASSWORD }}
+          PLAYER_KEY_ALIAS: ${{ secrets.PLAYER_KEY_ALIAS }}
+          PLAYER_KEY_PASSWORD: ${{ secrets.PLAYER_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in PLAYER_KEYSTORE_B64 PLAYER_KEYSTORE_PASSWORD PLAYER_KEY_ALIAS PLAYER_KEY_PASSWORD; do
+            [ -n "${!v}" ] || { echo "::error::secret $v is not set in the release environment"; exit 1; }
+          done
+          umask 077
+          mkdir -p apps/player/keystore
+          echo "$PLAYER_KEYSTORE_B64" | base64 -d > apps/player/keystore/release.jks
+          printf 'storeFile=keystore/release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$PLAYER_KEYSTORE_PASSWORD" "$PLAYER_KEY_ALIAS" "$PLAYER_KEY_PASSWORD" > apps/player/keystore.properties
+      - name: Build, test and lint the release APK
+        working-directory: apps/player
+        run: ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+      - name: Delete the keystore files
+        if: always()
+        run: rm -f apps/player/keystore/release.jks apps/player/keystore.properties
+      - name: Check the APK's signer against release/signing-certificate.sha256
+        run: scripts/check-apk-signer.sh apps/player/app/build/outputs/apk/release/app-release.apk
+      # Apache-2.0 §4: the APK must carry the licence text and the notices of the libraries it bundles
+      # (assets/licenses/, listed by the script with the Gradle runtime dependencies).
+      - name: Check the APK's licence notices
+        run: scripts/check-apk-notices.sh apps/player/app/build/outputs/apk/release/app-release.apk
+      # The notices cover the dependencies check-apk-notices.sh lists; Gradle's resolved runtime
+      # classpath must not hold one the list does not name (names only: group:artifact).
+      - name: The runtime dependencies are the ones check-apk-notices.sh lists
+        run: |
+          set -euo pipefail
+          scripts/check-apk-notices.sh --list | LC_ALL=C sort -u > build-listed-deps.txt
+          (cd apps/player && ./gradlew -q --no-daemon :app:dependencies --configuration releaseRuntimeClasspath) \
+            | grep -E -- '--- ' | sed -E 's/^.*--- //; s/ .*$//' | grep -v '^project$' | cut -d: -f1,2 | LC_ALL=C sort -u > build-resolved-deps.txt
+          [ -s build-resolved-deps.txt ] || { echo "::error::Gradle listed no runtime dependencies: check the configuration name"; exit 1; }
+          unlisted="$(LC_ALL=C comm -23 build-resolved-deps.txt build-listed-deps.txt)"
+          [ -z "$unlisted" ] || { echo "::error::runtime dependencies check-apk-notices.sh does not list: $unlisted"; exit 1; }
+          echo "runtime dependencies, all listed:"; cat build-resolved-deps.txt
+      # StudioPocket-<versionName>.apk (the APK's own versionName) and player.json with the fields
+      # scripts/build-player.sh writes; "file" names the release asset.
+      - name: Stage the APK and player.json
+        run: |
+          set -euo pipefail
+          OUT=apps/player/app/build/outputs/apk/release
+          VERSION="$(jq -r '.elements[0].versionName' "$OUT/output-metadata.json")"
+          [ -n "$VERSION" ] && [ "$VERSION" != null ] || { echo "no versionName in $OUT/output-metadata.json"; exit 1; }
+          [ "$VERSION" = "${GITHUB_REF_NAME#v}" ] || { echo "::error::APK versionName $VERSION does not match tag ${GITHUB_REF_NAME}"; exit 1; }
+          FILE="StudioPocket-$VERSION.apk"
+          mkdir -p dist
+          cp "$OUT/app-release.apk" "dist/$FILE"
+          SHA="$(sha256sum "dist/$FILE" | cut -d' ' -f1)"
+          printf '{\n  "file": "%s",\n  "versionName": "%s",\n  "sha256": "%s",\n  "sizeBytes": %s,\n  "builtAt": "%s"\n}\n' \
+            "$FILE" "$VERSION" "$SHA" "$(wc -c < "dist/$FILE" | tr -d ' ')" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > dist/player.json
+          cat dist/player.json
+      # TODO: no SBOM is produced for the APK yet; add a Gradle SBOM plugin. (syft does not catalogue an
+      # APK's Gradle dependencies.) Until then the release carries no APK SBOM and this step says so.
+      - name: SBOM for the APK (not produced yet)
+        run: echo "::warning::No SBOM for the player APK yet (see the TODO in release.yml)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: player
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: [tarballs, tools, source, player]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      # Only for RELEASE-NOTES.md, the draft's text (written for each release).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false, sparse-checkout: RELEASE-NOTES.md, sparse-checkout-cone-mode: false }
+      - name: RELEASE-NOTES.md is this release's
+        run: |
+          set -euo pipefail
+          heading="$(head -1 RELEASE-NOTES.md)"
+          [ "$heading" = "# Studio Pocket ${GITHUB_REF_NAME#v}" ] || { echo "::error::RELEASE-NOTES.md starts '$heading', not '# Studio Pocket ${GITHUB_REF_NAME#v}': write this release's notes first"; exit 1; }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Check the release files and write SHA256SUMS
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          missing=0
+          for pattern in 'StudioPocket-*.apk' player.json 'studio-pocket-*.tgz' \
+              mtkclient-macos-arm64.tar.gz mtkclient-windows-x64.tar.gz mtkclient-source.tar.gz \
+              e2fsprogs-macos-universal.tar.gz e2fsprogs-linux-x64.tar.gz e2fsprogs-windows-x64.tar.gz \
+              e2fsprogs-cygwin-src.tar.gz 'e2fsprogs-[0-9]*.tar.gz' 'libusb-*-source.tar.bz2' \
+              sbom-e2fsprogs-macos-universal.spdx.json sbom-e2fsprogs-linux-x64.spdx.json \
+              sbom-e2fsprogs-windows-x64.spdx.json sbom-mtkclient-macos-arm64.spdx.json \
+              sbom-mtkclient-windows-x64.spdx.json; do
+            # shellcheck disable=SC2206 # the pattern is meant to glob
+            matches=($pattern)
+            [ "${#matches[@]}" -gt 0 ] || { echo "missing: $pattern"; missing=1; }
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          files=(*)
+          sha256sum -- "${files[@]}" > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          draft: true
+          # Every release so far is a pre-release (docs/tested-hardware.md lists what is untested); the
+          # text is RELEASE-NOTES.md, not GitHub's generated list of commits.
+          prerelease: true
+          generate_release_notes: false
+          body_path: RELEASE-NOTES.md
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true

@@ -1,0 +1,4 @@
+LICENSE.txt: mpdecimal's licence (BSD-2-Clause), from the mpdecimal-2.5.1 release tarball:
+https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-2.5.1.tar.gz
+(tarball SHA-256 9f9cd4c041f99b5c49ffb7b59d9f12d95b683d88585608aa56a6307667b2b21f; LICENSE.txt SHA-256 b07528d8b1dbf1e2d2741052996f0876e23342ce2d30d0effa39c5457716c25a), fetched 2026-11-05.
+Used for the libmpdec that CPython links statically into _decimal.

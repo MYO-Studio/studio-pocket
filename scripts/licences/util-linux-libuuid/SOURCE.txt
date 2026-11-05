@@ -1,0 +1,5 @@
+NOTICE: libuuid's copyright and BSD-3-Clause licence: the comment block of libuuid/src/uuid.h in util-linux v2.40.2
+(https://raw.githubusercontent.com/util-linux/util-linux/v2.40.2/libuuid/src/uuid.h, SHA-256
+b3de21e72b14b5a8f36b0684690df0e3fced3ba6f513e6863887fbf98a606265), with the comment marks and the
+%Begin-Header%/%End-Header% markers removed; nothing else changed. Fetched 2026-11-05.
+Used for the Windows e2fsprogs bundle's cyguuid-1.dll (Cygwin's libuuid1, built from util-linux).

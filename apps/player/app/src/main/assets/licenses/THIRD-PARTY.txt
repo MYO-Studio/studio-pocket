@@ -1,0 +1,29 @@
+Studio Pocket player: third-party notices
+
+The player is licensed under GPL-3.0-only (or a commercial licence
+from Ashworth Digital Ltd). Its source code is published with every
+release. It includes the third-party components below, each under
+its own licence. The licence texts are in this folder (APACHE-2.0.txt)
+and next to the font (fonts/LICENSE-Nunito.txt).
+
+Kotlin standard library
+Package: org.jetbrains.kotlin:kotlin-stdlib
+Version: 2.0.21
+Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors
+Licence: Apache License 2.0 (APACHE-2.0.txt)
+NOTICE (from the Kotlin repository, license/NOTICE.txt):
+  NOTICE file corresponding to the section 4 d of
+  the Apache License, Version 2.0,
+  in this case for the Kotlin Compiler distribution.
+  Kotlin Compiler
+  Copyright 2010-2024 JetBrains s.r.o and respective authors and developers
+
+JetBrains Java Annotations
+Package: org.jetbrains:annotations
+Version: 13.0
+Copyright JetBrains s.r.o.
+Licence: Apache License 2.0 (APACHE-2.0.txt)
+
+Nunito (font, Nunito-SemiBold.ttf)
+Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
+Licence: SIL Open Font License 1.1 (fonts/LICENSE-Nunito.txt)

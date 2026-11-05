@@ -1,0 +1,7 @@
+rm /priv-app/MyLauncher.apk
+cd /priv-app
+write {{apk}} StudioPocket.apk
+sif StudioPocket.apk mode 0100644
+sif StudioPocket.apk uid 0
+sif StudioPocket.apk gid 0
+ea_set -f {{ctx}} StudioPocket.apk security.selinux

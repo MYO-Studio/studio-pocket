@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Install-time permissions on API 19; needed to list /storage/sdcard0 (FAT) and the microSD. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Keep the CPU awake while audio plays with the screen off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Screen page: brightness and screen-off timeout (granted at install in /system/priv-app). -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <!-- Volume limit: receive Bluetooth A2DP connection changes to re-clamp the new route's volume. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <!-- Bluetooth page: scan, pair, forget and turn the radio on/off. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- Bluetooth page: answer PIN/confirmation pairing requests (granted in /system/priv-app). -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_PRIVILEGED"
+        tools:ignore="ProtectedPermissions" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:theme="@style/StudioPocketTheme">
+
+        <!--
+          HOME activity. No android:priority on the HOME filter: on a blank userdata the
+          stock Provision.apk must still win the first HOME resolution (same choice as Y2Player).
+          singleTask + stateNotNeeded + excludeFromRecents mirror a real launcher.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode|locale|fontScale|mcc|mnc"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:stateNotNeeded="true"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".playback.PlaybackService"
+            android:exported="false" />
+
+        <!--
+          Diagnostic only. Records whether the platform delivers keys as MEDIA_BUTTON or as the
+          Innioasis vendor broadcast (com.innioasis.y2.key) in addition to ordinary KeyEvents.
+          Must be exported: both broadcasts come from the platform.
+        -->
+        <receiver
+            android:name=".KeyBroadcastReceiver"
+            android:exported="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+                <action android:name="com.innioasis.y2.key" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

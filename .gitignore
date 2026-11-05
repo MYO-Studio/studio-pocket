@@ -1,0 +1,45 @@
+# Dependencies / build output
+node_modules/
+dist/
+out/
+build/
+.gradle/
+*.iml
+.idea/
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Firmware images and proprietary inputs are never committed.
+# See docs/licensing/third-party.md and firmware/README.md.
+firmware/stock/
+firmware/work/
+*.img
+*.raw
+*.bin
+*.mbn
+*.dmg
+*.zip
+*.apk
+# Tiny test APKs signed with throwaway keys (make-fixtures.sh); no player code in them.
+!packages/firmware-tools/test/fixtures/apk/*.apk
+*.odex
+*.so
+MBR
+EBR1
+EBR2
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.env
+.env.*
+*.tsbuildinfo
+
+firmware/work*/
+firmware/tools/
+
+# mtkclient writes these into the current directory
+.state
+hwparam.json
