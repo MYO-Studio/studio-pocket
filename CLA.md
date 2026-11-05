@@ -4,8 +4,7 @@
 > once, by replying to the bot as it tells you; it then covers every contribution you make to this
 > project. If you contribute as part of your job, check with your employer first (section 4).
 
-This agreement is between you and **Ashworth Digital Ltd** [company number and registered office: to
-be added], the copyright holder of Studio Pocket ("we", "us"). It follows the
+This agreement is between you and **Ashworth Digital Ltd** (SC520584), the copyright holder of Studio Pocket ("we", "us"). It follows the
 structure of the Apache Software Foundation's Individual Contributor License Agreement, in plain
 English. Reading it does not commit you to anything; signing it does.
 
@@ -72,6 +71,6 @@ time.
 
 ## 7. General
 
-This agreement is governed by the law of [England and Wales: to be confirmed]. If any part of it cannot be enforced, the
+This agreement is governed by the law of the UK. If any part of it cannot be enforced, the
 rest still applies. It applies to every Contribution you submit after you sign it, and to any you
 submitted before, unless we agree otherwise in writing.
