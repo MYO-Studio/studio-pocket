@@ -36,6 +36,84 @@ class PlayerNavTest {
         nav.onKey(PREV); assertEquals(0, nav.selected)
     }
 
+    // --- player screen: the ring browses tracks, the arrows skip, centre plays the browsed track ---
+
+    /** On the player screen; [key] presses a key with track [playing] of 4 loaded. */
+    private fun playingNav(): PlayerNav = PlayerNav(2).apply { onKey(CENTRE) }
+    private fun PlayerNav.key(name: String, playing: Int) = onKey(name, hasPlayback = true, playingTrack = playing, trackCount = 4)
+
+    @Test
+    fun ringBrowsesTracksWithoutChangingThemAndStopsAtTheLast() {
+        val nav = playingNav()
+        assertEquals(PlayerNav.Action.Redraw, nav.key(NEXT, playing = 1)); assertEquals(2, nav.browsing)
+        assertEquals(PlayerNav.Action.Redraw, nav.key(NEXT, playing = 1)); assertEquals(3, nav.browsing)
+        assertEquals(PlayerNav.Action.None, nav.key(NEXT, playing = 1)); assertEquals(3, nav.browsing)
+        assertEquals(PlayerNav.Action.PlayTrack(3), nav.key(CENTRE, playing = 1))
+        assertEquals(null, nav.browsing)
+        assertEquals(PlayerNav.Screen.PLAYER, nav.screen)
+    }
+
+    @Test
+    fun ringStopsAtTheFirstTrack() {
+        val nav = playingNav()
+        assertEquals(PlayerNav.Action.None, nav.key(PREV, playing = 0)); assertEquals(null, nav.browsing)
+        nav.key(PREV, playing = 2); nav.key(PREV, playing = 2)
+        assertEquals(0, nav.browsing)
+        assertEquals(PlayerNav.Action.None, nav.key(PREV, playing = 2)); assertEquals(0, nav.browsing)
+    }
+
+    @Test
+    fun ringBackOntoThePlayingTrackEndsTheBrowseAndCentreThenPauses() {
+        val nav = playingNav()
+        nav.key(NEXT, playing = 1)
+        assertEquals(PlayerNav.Action.Redraw, nav.key(PREV, playing = 1)); assertEquals(null, nav.browsing)
+        assertEquals(PlayerNav.Action.TogglePause, nav.key(CENTRE, playing = 1))
+        assertEquals(PlayerNav.Action.TogglePause, nav.key("KEYCODE_ENTER", playing = 1))
+    }
+
+    @Test
+    fun arrowButtonsSkipTracksAndEndABrowse() {
+        val nav = playingNav()
+        nav.key(NEXT, playing = 1)
+        assertEquals(PlayerNav.Action.NextTrack, nav.key("KEYCODE_DPAD_RIGHT", playing = 1)); assertEquals(null, nav.browsing)
+        nav.key(NEXT, playing = 1)
+        assertEquals(PlayerNav.Action.PreviousTrack, nav.key("KEYCODE_DPAD_LEFT", playing = 1)); assertEquals(null, nav.browsing)
+        assertEquals(PlayerNav.Action.NextTrack, nav.key("KEYCODE_MEDIA_NEXT", playing = 1))
+    }
+
+    @Test
+    fun backEndsABrowseBeforeItLeavesThePlayer() {
+        val nav = playingNav()
+        nav.key(NEXT, playing = 0)
+        assertEquals(PlayerNav.Action.Redraw, nav.key(BACK, playing = 0))
+        assertEquals(PlayerNav.Screen.PLAYER, nav.screen); assertEquals(null, nav.browsing)
+        nav.key(BACK, playing = 0)
+        assertEquals(PlayerNav.Screen.HOME, nav.screen)
+    }
+
+    @Test
+    fun theIdleTimeoutEndsABrowseOnce() {
+        val nav = playingNav()
+        assertFalse(nav.endBrowse())
+        nav.key(NEXT, playing = 0)
+        assertTrue(nav.endBrowse()); assertEquals(null, nav.browsing)
+        assertFalse(nav.endBrowse())
+    }
+
+    @Test
+    fun playPauseButtonStillTogglesWhileBrowsing() {
+        val nav = playingNav()
+        nav.key(NEXT, playing = 0)
+        assertEquals(PlayerNav.Action.TogglePause, nav.key(PLAY_PAUSE, playing = 0))
+    }
+
+    @Test
+    fun anEmptyPlaylistHasNothingToBrowse() {
+        val nav = playingNav()
+        assertEquals(PlayerNav.Action.None, nav.onKey(NEXT, hasPlayback = true, playingTrack = 0, trackCount = 0))
+        assertEquals(null, nav.browsing)
+    }
+
     @Test
     fun centrePlaysTheSelectedPlaylistAndBackReturnsHome() {
         val nav = PlayerNav(2)

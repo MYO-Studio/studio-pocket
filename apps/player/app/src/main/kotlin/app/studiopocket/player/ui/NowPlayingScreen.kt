@@ -8,6 +8,7 @@ package app.studiopocket.player.ui
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.os.SystemClock
 import app.studiopocket.player.library.LoadedPlaylist
@@ -17,7 +18,9 @@ import app.studiopocket.player.library.LoadedPlaylist
  * pixel icon blown up 8x with no filtering, the track title large with the playlist name dim beneath
  * it, elapsed and total time over a rounded progress bar, and "Track n of m" at the foot, on a
  * background tinted towards the playlist artwork. Battery top right, sleep timer top left. Track
- * changes crossfade the icon; a long title scrolls while playing and parks when paused.
+ * changes crossfade the icon; a long title scrolls while playing and parks when paused. While the
+ * ring browses the playlist ([State.browsing]) the screen shows that track instead, dimmed under a
+ * play triangle and without the times or progress bar, until centre plays it or the browse ends.
  */
 class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
     enum class Status { PLAYING, PAUSED, PREPARING, STOPPED }
@@ -33,7 +36,13 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         val sleepMinutesLeft: Int? = null,
         val batteryPercent: Int = -1,
         val charging: Boolean = false,
-    )
+        /** The track the ring has browsed to, when it is not the playing one. */
+        val browsing: Int? = null,
+    ) {
+        /** The track on screen: the browsed one, else the playing one. */
+        val shownTrack: Int get() = browsing ?: trackIndex
+        val shownTitle: String get() = if (browsing == null) title else playlist?.manifest?.tracks?.getOrNull(browsing)?.title ?: ""
+    }
 
     private val iconPaint = Paint().apply { isFilterBitmap = false; isAntiAlias = false; isDither = false }
     private val ink = Ui.fill(Ui.ink)
@@ -46,6 +55,7 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
     private val warnPaint = Ui.text(Ui.TEXT, Ui.warn)
     private val rect = RectF()
     private val chrome = CardRenderer()
+    private val playPath = Path()
 
     private var state = State(null, 0, "", 0L, 0L, Status.STOPPED, null)
     private var background = Ui.bg
@@ -62,12 +72,12 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
     override fun onIconDecoded(path: String) = invalidate()
 
     fun update(next: State) {
-        val key = next.playlist?.let { "${it.id}/${next.trackIndex}" }
+        val key = next.playlist?.let { "${it.id}/${next.shownTrack}" }
         if (key != trackKey) {
             trackKey = key
             previous = shown
             crossStart = if (previous == null) 0L else SystemClock.uptimeMillis()
-            titleWidth = titlePaint.measureText(next.title)
+            titleWidth = titlePaint.measureText(next.shownTitle)
             titleStart = SystemClock.uptimeMillis()
         } else if (next.status == Status.PLAYING && state.status != Status.PLAYING) {
             titleStart = SystemClock.uptimeMillis()
@@ -81,20 +91,21 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         c.drawColor(background)
         val s = state
         val now = SystemClock.uptimeMillis()
-        val dimmed = s.status != Status.PLAYING
+        val browsing = s.browsing != null
+        val dimmed = browsing || s.status != Status.PLAYING
         val full = if (dimmed) DIM_ALPHA else 255
         var fade = if (crossStart == 0L) 1f else (now - crossStart) / CROSSFADE_MS.toFloat()
         if (fade >= 1f) { crossStart = 0L; previous = null; fade = 1f }
         previous?.let { icon(c, it, ((1f - fade) * full).toInt()) }
-        val icon = PixelIcon.bitmap(s.playlist?.trackIconFile(s.trackIndex))
+        val icon = PixelIcon.bitmap(s.playlist?.trackIconFile(s.shownTrack))
         if (icon != null) { icon(c, icon, (fade * full).toInt()); shown = icon }
-        if (s.status == Status.PAUSED) pauseGlyph(c)
+        if (browsing) playGlyph(c) else if (s.status == Status.PAUSED) pauseGlyph(c)
 
         // Title: ellipsised at rest; while playing, a long one scrolls once per cycle.
         val maxW = w - 2 * Ui.MARGIN
-        val scrolling = titleWidth > maxW && s.status == Status.PLAYING
+        val scrolling = titleWidth > maxW && s.status == Status.PLAYING && !browsing
         if (!scrolling) {
-            val t = Ui.ellipsize(titlePaint, s.title, maxW)
+            val t = Ui.ellipsize(titlePaint, s.shownTitle, maxW)
             c.drawText(t, (w - titlePaint.measureText(t)) / 2f, TITLE_BASELINE, titlePaint)
         } else {
             val cycle = MARQUEE_PAUSE_MS + ((titleWidth - maxW) / MARQUEE_PX_PER_MS) + MARQUEE_PAUSE_MS
@@ -111,24 +122,27 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
 
         val total = s.playlist?.manifest?.tracks?.size ?: 0
         val duration = if (s.durationMs > 0) s.durationMs else (s.playlist?.manifest?.tracks?.getOrNull(s.trackIndex)?.durationMs ?: 0L)
-        if (s.status == Status.PLAYING || s.status == Status.PAUSED) {
+        if (!browsing && (s.status == Status.PLAYING || s.status == Status.PAUSED)) {
             c.drawText(clock(s.positionMs), BAR_MARGIN, TIME_BASELINE, timePaint)
             val end = clock(duration)
             c.drawText(end, w - BAR_MARGIN - timePaint.measureText(end), TIME_BASELINE, timePaint)
         }
 
         // Rounded track, rounded purple fill; the fill never draws narrower than its own height.
-        dim.alpha = TRACK_ALPHA
-        rect.set(BAR_MARGIN, BAR_Y, w - BAR_MARGIN, BAR_Y + BAR_H)
-        c.drawRoundRect(rect, BAR_H / 2f, BAR_H / 2f, dim)
-        val fraction = if (duration > 0) (s.positionMs / duration.toFloat()).coerceIn(0f, 1f) else 0f
-        if (fraction > 0f) {
-            rect.right = BAR_MARGIN + maxOf(BAR_H, (w - 2 * BAR_MARGIN) * fraction)
-            c.drawRoundRect(rect, BAR_H / 2f, BAR_H / 2f, accent)
+        if (!browsing) {
+            dim.alpha = TRACK_ALPHA
+            rect.set(BAR_MARGIN, BAR_Y, w - BAR_MARGIN, BAR_Y + BAR_H)
+            c.drawRoundRect(rect, BAR_H / 2f, BAR_H / 2f, dim)
+            val fraction = if (duration > 0) (s.positionMs / duration.toFloat()).coerceIn(0f, 1f) else 0f
+            if (fraction > 0f) {
+                rect.right = BAR_MARGIN + maxOf(BAR_H, (w - 2 * BAR_MARGIN) * fraction)
+                c.drawRoundRect(rect, BAR_H / 2f, BAR_H / 2f, accent)
+            }
         }
 
         // Low battery replaces the track line with the warning.
         val line = when {
+            browsing -> "Track ${s.shownTrack + 1} of $total"
             s.error != null -> s.error
             s.status == Status.STOPPED -> "Done"
             s.status == Status.PREPARING -> "Loading…"
@@ -158,6 +172,20 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         c.drawRect(mid + PAUSE_GAP / 2f, top, mid + PAUSE_GAP / 2f + PAUSE_W, top + PAUSE_H, ink)
     }
 
+    /** A play triangle where the pause bars go: "centre plays this track". */
+    private fun playGlyph(c: Canvas) {
+        ink.alpha = 255
+        val cx = ICON_LEFT + ICON_SIZE / 2f
+        val cy = ICON_TOP + ICON_SIZE / 2f
+        // Nudged right of centre so the triangle's area, not its box, looks centred.
+        playPath.reset()
+        playPath.moveTo(cx - PLAY_H * 0.35f, cy - PLAY_H / 2f)
+        playPath.lineTo(cx + PLAY_H * 0.55f, cy)
+        playPath.lineTo(cx - PLAY_H * 0.35f, cy + PLAY_H / 2f)
+        playPath.close()
+        c.drawPath(playPath, ink)
+    }
+
     private fun tint(): Int {
         val p = state.playlist ?: return Ui.bg
         Artwork.bitmap(p)
@@ -182,6 +210,7 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         const val PAUSE_W = 18f
         const val PAUSE_H = 60f
         const val PAUSE_GAP = 14f
+        const val PLAY_H = 60f
         const val TITLE_SIZE = 30f
         const val TITLE_BASELINE = 204f
         const val PLAYLIST_SIZE = 24f

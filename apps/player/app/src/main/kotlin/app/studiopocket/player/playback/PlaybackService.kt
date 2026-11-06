@@ -197,7 +197,16 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
 
     private fun skip(delta: Int) {
         val p = playlist ?: return
-        val change = TrackChange.skip(trackIndex, delta, p.manifest.tracks.size, status == Status.PLAYING, sleepDue())
+        applyChange(p, TrackChange.skip(trackIndex, delta, p.manifest.tracks.size, status == Status.PLAYING, sleepDue()) ?: return)
+    }
+
+    /** Plays track [index] of the loaded playlist from its start (the ring browses, the centre button picks). */
+    fun playTrack(index: Int) {
+        val p = playlist ?: return
+        applyChange(p, TrackChange.jump(index, p.manifest.tracks.size, status == Status.PLAYING, sleepDue()) ?: return)
+    }
+
+    private fun applyChange(p: LoadedPlaylist, change: TrackChange) {
         if (!change.play) { stopAt(p, change.index); return }
         trackIndex = change.index
         pendingSeekMs = 0L
