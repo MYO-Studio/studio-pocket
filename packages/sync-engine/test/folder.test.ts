@@ -3,7 +3,7 @@
 // This file is part of Studio Pocket. It is licensed under GPL-3.0-only, or under a
 // commercial licence from Ashworth Digital Ltd (see COPYING.commercial).
 
-import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -350,5 +350,123 @@ describe('buildFolderLibrary with MYO Studio downloads', () => {
         const lib = await buildFolderLibrary(root, nodeFolderDeps);
         expect(lib.notes!.join('\n')).toMatch(/zip files are not opened; unzip them first: .*Christmas-Songs\.zip/);
         await expect(buildFolderLibrary(path.join(root, 'Christmas-Songs.zip'), nodeFolderDeps)).rejects.toThrow(/unzip it first/);
+    });
+});
+
+/**
+ * A download from the MYO Studio browser extension, laid out as its "full archive" writes it:
+ * audio/<key>-<first track title>.mp3, icons/<key>-<title>-icon.png, cover/cover.png and data/*.json.
+ * Chapter keys are not in name order, so the card's order is what counts; the second chapter was
+ * renamed in the card (its title differs from its first track's), and its audio is MP4 data named .mp3.
+ */
+async function extensionArchive(root: string, rel: string, opts: { simplified?: boolean } = {}): Promise<string> {
+    const dir = path.join(root, rel);
+    const chapters = [
+        { key: 'k9', title: 'Opening Credits', first: 'Opening Credits', audio: 'tone-c5.mp3', icon: 'pixel-moon.png' },
+        { key: 'a2', title: 'The Cake', first: 'Cake Twist', audio: 'tone-e4.m4a', icon: 'pixel-note.png' },
+        { key: 'm5', title: 'Birds', first: 'Birds', audio: 'tone-e5.mp3', icon: 'pixel-star.png' },
+    ];
+    for (const c of chapters) {
+        await copyAudio(dir, `audio/${c.key}-${c.first}.mp3`, c.audio);
+        await copyImage(dir, `icons/${c.key}-${c.first}-icon.png`, c.icon);
+    }
+    await copyImage(dir, 'cover/cover.png', 'cover-orange.jpg'); // the extension names any cover .png
+    const resolved = {
+        title: 'Ada Twist Stories', description: 'x', metadata: { cover: { imageL: 'https://example.invalid/c.jpg' } },
+        content: { chapters: chapters.map((c) => ({ key: c.key, title: c.title, tracks: [{ key: '01', title: c.first, trackUrl: 'https://example.invalid/a', display: { icon16x16: 'https://example.invalid/i' } }] })) },
+    };
+    await writeText(dir, 'data/resolved-card-data.json', JSON.stringify(resolved));
+    await writeText(dir, 'data/card-data.json', JSON.stringify({ card: {} }));
+    await writeText(dir, 'data/metadata.json', JSON.stringify({ version: '1.38.0' }));
+    if (opts.simplified !== false) {
+        await writeText(dir, 'data/simplified-card-data.json', JSON.stringify({
+            title: 'Ada Twist Stories', description: 'x', cover: 'https://example.invalid/c.jpg',
+            chapters: chapters.map((c) => ({ key: c.key, title: c.first, trackUrl: 'https://example.invalid/a', icon: 'https://example.invalid/i' })),
+        }));
+    }
+    return dir;
+}
+
+describe('buildFolderLibrary with a MYO Studio v2 download that is missing a track', () => {
+    it('leaves out a track MYO Studio could not fetch (audio: null), with a note', async () => {
+        const root = await folder();
+        const dir = await v2Archive(root, 'Christmas-Songs-full');
+        const meta = JSON.parse(await readFile(path.join(dir, 'metadata.json'), 'utf8'));
+        meta.tracks.push({ index: 3, key: '02', title: '3.Silent Pups', audio: null, icon: null });
+        await writeText(dir, 'metadata.json', JSON.stringify(meta));
+        const lib = await buildFolderLibrary(root, nodeFolderDeps);
+        expect(lib.playlists[0]!.manifest.tracks.map((t) => t.title)).toEqual(['1.Deck the Pups', '2.Jingle Pups']);
+        expect(lib.notes!.join('\n')).toMatch(/1 track\(s\) have no audio in the download and are left out: 3\.Silent Pups/);
+
+        meta.tracks = meta.tracks.map((t: Record<string, unknown>) => ({ ...t, audio: null }));
+        await writeText(dir, 'metadata.json', JSON.stringify(meta));
+        await expect(buildFolderLibrary(root, nodeFolderDeps)).rejects.toThrow(/a MYO Studio download with no audio for any of its tracks/);
+    });
+});
+
+describe('buildFolderLibrary with MYO Studio browser-extension downloads', () => {
+    it('reads one in card order, with the titles the card shows, its icons, and its cover by its bytes', async () => {
+        const root = await folder();
+        const dir = await extensionArchive(root, 'Ada Twist Stories');
+        const lib = await buildFolderLibrary(root, nodeFolderDeps);
+        expect(lib.notes ?? []).toEqual([]);
+        const [playlist] = lib.playlists;
+        const m = playlist!.manifest;
+        expect(m.title).toBe('Ada Twist Stories');
+        expect(m.tracks.map((t) => t.title)).toEqual(['Opening Credits', 'The Cake', 'Birds']);
+        expect(playlist!.tracks.map((t) => path.basename(t.localPath))).toEqual(['k9-Opening Credits.mp3', 'a2-Cake Twist.mp3', 'm5-Birds.mp3']);
+        expect(m.tracks.map((t) => t.mimeType)).toEqual(['audio/mpeg', 'audio/mp4', 'audio/mpeg']);
+        expect(m.tracks[1]!.file).toMatch(/\.m4a$/);
+        expect(playlist!.tracks.map((t) => path.basename(t.iconPath!))).toEqual(['k9-Opening Credits-icon.png', 'a2-Cake Twist-icon.png', 'm5-Birds-icon.png']);
+        expect(m.cover).toBe('cover.jpg');
+        expect(playlist!.coverPath).toBe(path.join(dir, 'cover/cover.png'));
+        expect(() => validatePlaylistManifest(m)).not.toThrow();
+    });
+
+    it('reads the first downloads, which had no simplified card, from the resolved card', async () => {
+        const root = await folder();
+        await extensionArchive(root, 'Old', { simplified: false });
+        const [playlist] = (await buildFolderLibrary(root, nodeFolderDeps)).playlists;
+        expect(playlist!.manifest.title).toBe('Ada Twist Stories');
+        expect(playlist!.manifest.tracks.map((t) => t.title)).toEqual(['Opening Credits', 'The Cake', 'Birds']);
+    });
+
+    it('imports the folder passed in when it is itself an extension download', async () => {
+        const root = await folder();
+        const dir = await extensionArchive(root, 'Ada');
+        const lib = await buildFolderLibrary(dir, nodeFolderDeps);
+        expect(lib.playlists.map((p) => [p.manifest.title, p.manifest.tracks.length])).toEqual([['Ada Twist Stories', 3]]);
+    });
+
+    it('finds a renamed file by its chapter key, notes a chapter the extension could not fetch, and refuses stray audio', async () => {
+        const root = await folder();
+        const dir = await extensionArchive(root, 'Ada');
+        await rename(path.join(dir, 'audio/m5-Birds.mp3'), path.join(dir, 'audio/m5-Birds (1).mp3'));
+        const lib = await buildFolderLibrary(root, nodeFolderDeps);
+        expect(lib.playlists[0]!.manifest.tracks).toHaveLength(3);
+
+        await rm(path.join(dir, 'audio/a2-Cake Twist.mp3'));
+        const lib2 = await buildFolderLibrary(root, nodeFolderDeps);
+        expect(lib2.playlists[0]!.manifest.tracks.map((t) => t.title)).toEqual(['Opening Credits', 'Birds']);
+        expect(lib2.notes!.join('\n')).toMatch(/1 chapter\(s\) have no audio in the download and are left out: The Cake/);
+
+        await copyAudio(dir, 'audio/zz-Extra.mp3', 'tone-g5.mp3');
+        await expect(buildFolderLibrary(root, nodeFolderDeps)).rejects.toThrow(/zz-Extra\.mp3: not part of this MYO Studio download's track list/);
+    });
+
+    it('refuses a download whose data folder lost its track list, and leaves an unrelated data folder alone', async () => {
+        const root = await folder();
+        const dir = await extensionArchive(root, 'Ada');
+        await rm(path.join(dir, 'data/simplified-card-data.json'));
+        await rm(path.join(dir, 'data/resolved-card-data.json'));
+        await expect(buildFolderLibrary(root, nodeFolderDeps)).rejects.toThrow(/a MYO Studio extension download without its track list/);
+
+        await writeText(dir, 'data/simplified-card-data.json', '{ not json');
+        await expect(buildFolderLibrary(root, nodeFolderDeps)).rejects.toThrow(/track list \(simplified-card-data\.json\) cannot be read/);
+
+        const other = await folder();
+        await copyAudio(other, 'Songs/audio/01.mp3', 'tone-c5.mp3');
+        await writeText(other, 'Songs/data/notes.json', '{}');
+        await expect(buildFolderLibrary(other, nodeFolderDeps)).rejects.toThrow(/nested folders are not supported/);
     });
 });

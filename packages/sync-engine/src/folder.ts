@@ -58,7 +58,26 @@ const OPUS_ADVICE = 'the player cannot play Opus; download the AAC version of th
 
 interface ArchiveTrack { index: number; title: string; audio?: unknown; icon?: unknown }
 interface Archive { v2: boolean; title: string; cover?: unknown; tracks: ArchiveTrack[] }
-type ArchiveRead = { kind: 'archive'; archive: Archive } | { kind: 'broken'; problem: string } | null;
+/** One chapter of a browser-extension download: its file names use [fileTitle], the playlist shows [title]. */
+interface ExtensionChapter { key: string; title: string; fileTitle: string }
+interface ExtensionArchive { title: string; chapters: ExtensionChapter[] }
+type ArchiveRead =
+    | { kind: 'archive'; archive: Archive }
+    | { kind: 'extension'; archive: ExtensionArchive }
+    | { kind: 'broken'; problem: string }
+    | null;
+
+// The MYO Studio browser extension's "full archive" (2025-06 onwards), unlike the web app's:
+//   audio/<chapter key>-<first track title>.mp3   (whatever the audio really is: the bytes decide)
+//   icons/<chapter key>-<first track title>-icon.png
+//   cover/cover.png                                 (can hold JPEG data)
+//   data/simplified-card-data.json  { title, description, cover, chapters: [{ key, title, trackUrl, icon }] }
+//   data/resolved-card-data.json, data/card-data.json, data/metadata.json ({ version } of the extension)
+// The first downloads (2025-06-16) had no simplified-card-data.json: the resolved card gives the chapters then.
+const EXTENSION_DATA = 'data';
+const EXTENSION_SIMPLIFIED = 'simplified-card-data.json';
+const EXTENSION_RESOLVED = 'resolved-card-data.json';
+const EXTENSION_PARTS = new Set([EXTENSION_DATA, 'audio', 'icons', 'cover']);
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isArchiveTrack = (v: unknown): v is ArchiveTrack => isRecord(v) && typeof v.index === 'number' && Number.isFinite(v.index) && typeof v.title === 'string';
@@ -83,6 +102,69 @@ async function readArchive(entries: FolderEntry[], deps: FolderDeps): Promise<Ar
     if (!v2 && !(typeof meta.title === 'string' && tracksOk)) return null;
     if (!tracksOk) return { kind: 'broken', problem: `${file.path}: a MYO Studio download whose track list cannot be read` };
     return { kind: 'archive', archive: { v2, title: typeof meta.title === 'string' ? meta.title : '', cover: meta.cover, tracks: meta.tracks as ArchiveTrack[] } };
+}
+
+const chapterKey = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : null);
+
+/**
+ * The folder's browser-extension download, when it is one: an audio/ folder beside a data/ folder
+ * holding the card the extension saved. A data/ folder with neither card file is a broken download
+ * only when the extension's own data/metadata.json says it made it; otherwise the folder is left to
+ * the plain-folder rules.
+ */
+async function readExtensionArchive(entries: FolderEntry[], deps: FolderDeps): Promise<ArchiveRead> {
+    const data = entries.find((e) => e.isDir && e.name === EXTENSION_DATA);
+    if (!data || !entries.some((e) => e.isDir && e.name === 'audio')) return null;
+    let files: FolderEntry[];
+    try {
+        files = await deps.list(data.path);
+    } catch {
+        return null;
+    }
+    /** undefined: no such file; null: there, but not JSON. */
+    const json = async (name: string): Promise<unknown> => {
+        const f = files.find((e) => !e.isDir && e.name === name);
+        if (!f) return undefined;
+        try {
+            return JSON.parse(new TextDecoder().decode(await deps.read(f.path, MAX_METADATA_BYTES)));
+        } catch {
+            return null;
+        }
+    };
+    const simplified = await json(EXTENSION_SIMPLIFIED);
+    const resolved = await json(EXTENSION_RESOLVED);
+    const broken = (why: string): ArchiveRead => ({ kind: 'broken', problem: `${data.path}: a MYO Studio extension download ${why}` });
+
+    // The resolved card: chapter titles as the playlist shows them, and the chapters themselves for
+    // downloads made before simplified-card-data.json. A chapter with no first track had no audio.
+    const resolvedChapters: ExtensionChapter[] = [];
+    const content = isRecord(resolved) && isRecord(resolved.content) ? resolved.content : null;
+    if (content && Array.isArray(content.chapters)) {
+        for (const c of content.chapters) {
+            const first = isRecord(c) && Array.isArray(c.tracks) && isRecord(c.tracks[0]) ? c.tracks[0] : null;
+            const key = isRecord(c) ? chapterKey(c.key) : null;
+            if (!first || key === null || typeof first.title !== 'string') continue;
+            const own = isRecord(c) && typeof c.title === 'string' && c.title.trim() ? c.title : first.title;
+            resolvedChapters.push({ key, title: own, fileTitle: first.title });
+        }
+    }
+    const resolvedTitle = isRecord(resolved) && typeof resolved.title === 'string' ? resolved.title : '';
+
+    if (simplified !== undefined) {
+        if (!isRecord(simplified) || !Array.isArray(simplified.chapters) || simplified.chapters.length === 0) return broken(`whose track list (${EXTENSION_SIMPLIFIED}) cannot be read`);
+        const titleByKey = new Map(resolvedChapters.map((c) => [c.key, c.title]));
+        const chapters: ExtensionChapter[] = [];
+        for (const c of simplified.chapters) {
+            const key = isRecord(c) ? chapterKey(c.key) : null;
+            if (key === null || !isRecord(c) || typeof c.title !== 'string') return broken(`whose track list (${EXTENSION_SIMPLIFIED}) cannot be read`);
+            chapters.push({ key, title: titleByKey.get(key) ?? c.title, fileTitle: c.title });
+        }
+        return { kind: 'extension', archive: { title: typeof simplified.title === 'string' && simplified.title.trim() ? simplified.title : resolvedTitle, chapters } };
+    }
+    if (resolvedChapters.length) return { kind: 'extension', archive: { title: resolvedTitle, chapters: resolvedChapters } };
+    if (resolved !== undefined) return broken(`whose card (${EXTENSION_RESOLVED}) has no chapters that can be read`);
+    if (files.some((e) => !e.isDir && e.name === METADATA)) return broken(`without its track list (${EXTENSION_SIMPLIFIED})`);
+    return null;
 }
 
 /** A path from metadata.json, kept inside the download; null when it would leave it. */
@@ -189,7 +271,7 @@ class Builder {
             this.problems.push(`${dir.path}: ${reason(e)}`);
             return;
         }
-        const archive = await readArchive(entries, this.deps);
+        const archive = (await readArchive(entries, this.deps)) ?? (await readExtensionArchive(entries, this.deps));
         if (archive) return this.archive(dir.path, entries, archive);
         const files = entries.filter((e) => !e.isDir).sort(byName);
         await this.refuseNested(entries);
@@ -208,8 +290,17 @@ class Builder {
             this.problems.push(read.problem);
             return;
         }
+        if (read.kind === 'extension') return this.extension(dir, entries, read.archive);
         const { archive } = read;
-        const meta = [...archive.tracks].sort((a, b) => a.index - b.index);
+        // A v2 download records `audio: null` for a track MYO Studio could not fetch: left out, with a note.
+        const sorted = [...archive.tracks].sort((a, b) => a.index - b.index);
+        const notFetched = archive.v2 ? sorted.filter((t) => t.audio === null) : [];
+        const meta = sorted.filter((t) => !notFetched.includes(t));
+        if (notFetched.length) this.notes.push(`${dir}: ${notFetched.length} track(s) have no audio in the download and are left out: ${notFetched.map((t) => t.title).join(', ')}`);
+        if (meta.length === 0) {
+            this.problems.push(`${dir}: a MYO Studio download with no audio for any of its tracks`);
+            return;
+        }
         const filesOf = async (name: string): Promise<FolderEntry[]> =>
             entries.some((e) => e.isDir && e.name === name) ? (await this.deps.list(path.join(dir, name))).filter((e) => visible(e) && !e.isDir).sort(byName) : [];
         const skippedIcons: string[] = [];
@@ -288,6 +379,88 @@ class Builder {
 
         this.add(dir, archive.title.trim() || path.basename(dir), tracks, cover);
     }
+
+    /**
+     * A browser-extension download: each chapter's audio and icon found by the name the extension
+     * gave it (`<key>-<title>`), or failing that by its key alone; chapters in the card order. The
+     * extension leaves out chapters it could not fetch, so a chapter without audio is noted, not
+     * refused; audio that belongs to no chapter is refused, as in the web app's downloads.
+     */
+    async extension(dir: string, entries: FolderEntry[], archive: ExtensionArchive): Promise<void> {
+        const filesOf = async (name: string): Promise<FolderEntry[]> =>
+            entries.some((e) => e.isDir && e.name === name) ? (await this.deps.list(path.join(dir, name))).filter((e) => visible(e) && !e.isDir).sort(byName) : [];
+        let audioFiles: FolderEntry[];
+        let iconFiles: FolderEntry[];
+        let coverFiles: FolderEntry[];
+        try {
+            [audioFiles, iconFiles, coverFiles] = [await filesOf('audio'), await filesOf('icons'), await filesOf('cover')];
+        } catch (e) {
+            this.problems.push(`${dir}: ${reason(e)}`);
+            return;
+        }
+        /** Audio is matched on the name without its extension (the extension says .mp3 whatever it saved); icons on `-icon.png`. */
+        const finder = (files: FolderEntry[], suffix: string | null) => {
+            const taken = new Set<string>();
+            const stem = (f: FolderEntry) => (suffix === null ? path.basename(f.name, path.extname(f.name)) : f.name).toLowerCase();
+            return (c: ExtensionChapter): FolderEntry | undefined => {
+                const want = `${c.key}-${c.fileTitle}${suffix ?? ''}`.toLowerCase();
+                const free = files.filter((f) => !taken.has(f.path));
+                const byKey = free.filter((f) => f.name.startsWith(`${c.key}-`) && (suffix === null || f.name.toLowerCase().endsWith(suffix)));
+                const hit = free.find((f) => stem(f) === want) ?? (byKey.length === 1 ? byKey[0] : undefined);
+                if (hit) taken.add(hit.path);
+                return hit;
+            };
+        };
+        const audioFor = finder(audioFiles, null);
+        const iconFor = finder(iconFiles, '-icon.png');
+
+        const tracks: SourceTrack[] = [];
+        const trackIds = new Set<string>();
+        const used = new Set<string>();
+        const noAudio: string[] = [];
+        const skippedIcons: string[] = [];
+        for (const c of archive.chapters) {
+            const file = audioFor(c);
+            if (!file) { noAudio.push(c.title); continue; }
+            used.add(file.path);
+            const track = await this.track(file.path, c.title.trim() || path.basename(file.name, path.extname(file.name)), trackIds, true);
+            if (!track) continue;
+            const icon = iconFor(c);
+            if (icon) {
+                if (is16x16Png(await this.deps.read(icon.path, 24).catch(() => new Uint8Array()))) {
+                    track.entry.icon = `icons/${track.entry.id}.png`;
+                    track.iconPath = icon.path;
+                } else {
+                    skippedIcons.push(icon.path);
+                }
+            }
+            tracks.push(track);
+        }
+        for (const f of audioFiles.filter((f) => !used.has(f.path))) {
+            this.problems.push(`${f.path}: not part of this MYO Studio download's track list (${EXTENSION_DATA}/${EXTENSION_SIMPLIFIED})`);
+        }
+        if (noAudio.length) this.notes.push(`${dir}: ${noAudio.length} chapter(s) have no audio in the download and are left out: ${noAudio.join(', ')}`);
+        if (skippedIcons.length) this.notes.push(`skipped ${skippedIcons.length} track icon(s) that are not 16x16 PNGs; those tracks show the player's default glyph: ${skippedIcons.join(', ')}`);
+
+        const coverFile = coverFiles.find((f) => f.name.toLowerCase() === 'cover.png') ?? coverFiles[0];
+        let cover: { name: string; path: string } | undefined;
+        if (coverFile) {
+            const name = coverName(await this.deps.read(coverFile.path, 12).catch(() => new Uint8Array()));
+            if (name) cover = { name, path: coverFile.path };
+            else this.notes.push(`${coverFile.path}: the cover is not a JPEG, PNG or WebP picture; the playlist goes without it`);
+        }
+
+        // data/, audio/, icons/ and cover/ belong to the download; anything else is reported as in a plain playlist folder.
+        const others = entries.filter((e) => !(e.isDir && EXTENSION_PARTS.has(e.name)));
+        for (const f of others.filter((e) => !e.isDir)) {
+            if (isNonAudio(f)) this.ignore([f]);
+            else this.problems.push(`${f.path}: not part of this MYO Studio download's track list (${EXTENSION_DATA}/${EXTENSION_SIMPLIFIED})`);
+        }
+        await this.refuseNested(others);
+        if (tracks.length === 0 && !this.problems.some((x) => x.startsWith(dir))) this.problems.push(`${dir}: a MYO Studio extension download with no audio for any of its chapters`);
+
+        this.add(dir, archive.title.trim() || path.basename(dir), tracks, cover);
+    }
 }
 
 export async function buildFolderLibrary(folder: string, deps: FolderDeps): Promise<SourceLibrary> {
@@ -295,7 +468,7 @@ export async function buildFolderLibrary(folder: string, deps: FolderDeps): Prom
     const b = new Builder(deps);
     const top = (await deps.list(folder)).filter(visible);
 
-    const archive = await readArchive(top, deps);
+    const archive = (await readArchive(top, deps)) ?? (await readExtensionArchive(top, deps));
     if (archive) {
         await b.archive(folder, top, archive);
     } else {

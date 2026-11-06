@@ -253,8 +253,10 @@ Eject the volume and unplug: the player picks up the new playlists by itself.
   replaced hidden on the player until the next complete run.
 
 MYO Studio downloads work as they are: point the command at the download folder, or at a folder of
-them; titles, track icons and the cover come across. Unzip a download first (zip files are not
-opened). Opus downloads cannot be played; use the AAC version.
+them; titles, track icons and the cover come across. That covers the web app's full-archive
+downloads and the MYO Studio browser extension's full-archive downloads. Unzip a download first (zip
+files are not opened). Opus downloads cannot be played; use the AAC version. A track the download
+has no audio for is left out, and the command says which.
 
 ```bash
 studio-pocket-sync ~/Downloads/Christmas-Songs-full "/Volumes/NO NAME"
