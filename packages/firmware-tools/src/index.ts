@@ -20,3 +20,4 @@ export * from './layout.js';
 export * from './device.js';
 export * from './manifests.js';
 export * from './da.js';
+export * from './keylayout.js';

@@ -4,7 +4,8 @@
 // commercial licence from Ashworth Digital Ltd (see COPYING.commercial).
 
 import { acceptApk, inspectApkFile } from './apk.js';
-import { debugfsScript, e2fsck, ToolError } from './e2fs.js';
+import { debugfsQuery, debugfsScript, e2fsck, ToolError } from './e2fs.js';
+import { addWakeFlags, buildKeyLayoutScript, KEY_LAYOUT } from './keylayout.js';
 import { identifyImage } from './ext4.js';
 import type { FirmwarePlatform } from './platform.js';
 
@@ -83,6 +84,8 @@ export interface PatchResult {
     apkSignerSha256: string;
     fsckCode: number;
     script: string[];
+    /** Scan codes that gained WAKE in the key layout (./keylayout.ts); empty when nothing needed changing. */
+    wakeKeysAdded: number[];
 }
 
 export async function patchSystemImage(p: FirmwarePlatform, options: PatchOptions): Promise<PatchResult> {
@@ -140,6 +143,8 @@ export async function patchSystemImage(p: FirmwarePlatform, options: PatchOption
     const failure = result.stdout.split('\n').find((line) => /(not found|No such|Could not|rm: )/.test(line) && !/odex/.test(line));
     if (failure) throw new ToolError(`debugfs reported: ${failure.trim()}`);
 
+    const wakeKeysAdded = await applyWakeKeys(p, out, options.workDir, contextPath, log);
+
     log('e2fsck -fy (reconcile bitmaps and counts)');
     const fsck = await e2fsck(p, out, 'fix');
     if (fsck.code > 1) throw new ToolError(`e2fsck -fy exit ${fsck.code}: ${fsck.stdout}${fsck.stderr}`);
@@ -149,5 +154,35 @@ export async function patchSystemImage(p: FirmwarePlatform, options: PatchOption
     const apkSha256 = await p.sha256File(apkPath);
     const outSize = (await p.stat(out)).size;
     const outSha256 = await p.sha256File(out, (bytes) => options.onProgress?.({ stage: 'hash', bytes, total: outSize }));
-    return { out, outBytes: outSize, stockSha256, apkSha256, outSha256, apkPackageName: apk.packageName, apkSignerSha256: apk.signerSha256, fsckCode: fsck.code, script };
+    return { out, outBytes: outSize, stockSha256, apkSha256, outSha256, apkPackageName: apk.packageName, apkSignerSha256: apk.signerSha256, fsckCode: fsck.code, script, wakeKeysAdded };
+}
+
+/**
+ * Pressing a button wakes the screen (./keylayout.ts): the image's key layout gains WAKE on the
+ * arrow, centre and back buttons (not the ring, which turns too easily by accident). Install and upgrade both run it; an image that already has them
+ * (an upgrade of a player set up with this version) is left alone, and an image without the
+ * file keeps its stock keys, with a log line.
+ */
+async function applyWakeKeys(p: FirmwarePlatform, image: string, workDir: string, contextPath: string, log: (line: string) => void): Promise<number[]> {
+    const current = p.join(workDir, 'mtk-kpd.kl.read');
+    const next = p.join(workDir, 'mtk-kpd.kl');
+    await p.remove(current).catch(() => undefined);
+    await debugfsQuery(p, image, `dump ${KEY_LAYOUT} ${quoteHostPath(current)}`);
+    if (!(await p.stat(current)).exists) {
+        log(`${KEY_LAYOUT} is not in this image: the keys keep their stock wake behaviour`);
+        return [];
+    }
+    const edit = addWakeFlags(await p.readText(current));
+    if (edit.untouched.length) log(`key layout: no plain line for scan code(s) ${edit.untouched.join(', ')}; left as they are`);
+    if (!edit.changed.length) {
+        log('key layout: every button already wakes the screen');
+        return [];
+    }
+    await p.writeText(next, edit.text);
+    const result = await debugfsScript(p, image, buildKeyLayoutScript(quoteHostPath(next), quoteHostPath(contextPath)), true);
+    if (result.code !== 0) throw new ToolError(`debugfs failed on the key layout (${result.code}): ${result.stderr || result.stdout}`);
+    const failure = result.stdout.split('\n').find((line) => /(not found|No such|Could not|rm: )/.test(line));
+    if (failure) throw new ToolError(`debugfs reported on the key layout: ${failure.trim()}`);
+    log(`key layout: WAKE added for scan code(s) ${edit.changed.join(', ')}`);
+    return edit.changed;
 }

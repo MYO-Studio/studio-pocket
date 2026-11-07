@@ -5,6 +5,7 @@
 
 import { debugfsQuery, dumpe2fsHeader, e2fsck } from './e2fs.js';
 import { identifyImage } from './ext4.js';
+import { KEY_LAYOUT, missingWakeFlags } from './keylayout.js';
 import { quoteHostPath, STOCK_LAUNCHER, STOCK_LAUNCHER_ODEX, TARGET_APK, TARGET_APK_NAME } from './patch.js';
 import type { FirmwarePlatform } from './platform.js';
 
@@ -84,6 +85,19 @@ export async function verifyPatchedImage(p: FirmwarePlatform, options: VerifyOpt
     if (!listing.includes(`/${TARGET_APK_NAME}/`)) problems.push(`${TARGET_APK_NAME} not listed in /priv-app`);
     const appListing = await debugfsQuery(p, image, 'ls -p /app');
     if (appListing.includes(`/${TARGET_APK_NAME}/`)) problems.push('duplicate StudioPocket.apk under /app');
+
+    // Any button wakes the screen: checked wherever the image has the Y2 key layout.
+    const layout = p.join(p.tmpDir(), `myo-readback-${p.uniqueId()}.kl`);
+    await debugfsQuery(p, image, `dump ${KEY_LAYOUT} ${quoteHostPath(layout)}`);
+    try {
+        if ((await p.stat(layout)).exists) {
+            const missing = missingWakeFlags(await p.readText(layout));
+            if (missing.length) problems.push(`${KEY_LAYOUT}: scan code(s) ${missing.join(', ')} do not wake the screen`);
+            details.wakeKeys = missing.length ? `missing ${missing.join(', ')}` : 'all';
+        }
+    } finally {
+        await p.remove(layout).catch(() => undefined);
+    }
 
     log('e2fsck -fn (read-only consistency check)');
     const fsck = await e2fsck(p, image, 'check');
