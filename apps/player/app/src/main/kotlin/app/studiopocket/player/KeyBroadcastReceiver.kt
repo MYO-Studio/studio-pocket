@@ -10,11 +10,17 @@ import android.content.Context
 import android.content.Intent
 import android.view.KeyEvent
 
-/** Records MEDIA_BUTTON and the Innioasis vendor key broadcast so the diagnostics screen shows which arrive. */
+/**
+ * Records MEDIA_BUTTON and the Innioasis vendor key broadcast so the diagnostics screen shows which
+ * arrive, and wakes the screen for the player's own play/pause button ([ScreenWake]).
+ */
 class KeyBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val extras = intent.extras
         val keyEvent = extras?.get(Intent.EXTRA_KEY_EVENT) as? KeyEvent
+        if (intent.action == Intent.ACTION_MEDIA_BUTTON && keyEvent != null && ScreenWake.onMediaButton(context, keyEvent)) {
+            EventLog.shared.add("screen woken by play/pause")
+        }
         val detail = if (keyEvent != null) {
             Y2Keys.describe(
                 if (keyEvent.action == KeyEvent.ACTION_DOWN) "DOWN" else "UP",
