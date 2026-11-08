@@ -84,7 +84,8 @@ folder.
 ## Using a release
 
 Each release on GitHub carries a signed player APK (`StudioPocket-<version>.apk`), ready-built tools
-(`e2fsprogs-macos-universal.tar.gz`, `e2fsprogs-linux-x64.tar.gz`, `mtkclient-macos-arm64.tar.gz`)
+(`e2fsprogs-macos-universal.tar.gz`, `e2fsprogs-linux-x64.tar.gz`, `mtkclient-macos-arm64.tar.gz` for
+Apple silicon Macs, `mtkclient-macos-x64.tar.gz` for Intel Macs; both run on macOS 11 and later)
 and `SHA256SUMS`. You still need this repository, built as above (`pnpm install`, `pnpm -r build`),
 for the `studio-pocket-firmware` and `studio-pocket-sync` commands; the release replaces building the player and
 the tools.
@@ -103,7 +104,7 @@ because there is no Linux mtkclient archive):
 ```bash
 mkdir -p ~/studio-pocket-tools/e2fsprogs ~/studio-pocket-tools/mtkclient
 tar -xzf e2fsprogs-macos-universal.tar.gz -C ~/studio-pocket-tools/e2fsprogs
-tar -xzf mtkclient-macos-arm64.tar.gz -C ~/studio-pocket-tools/mtkclient
+tar -xzf mtkclient-macos-arm64.tar.gz -C ~/studio-pocket-tools/mtkclient   # Intel Mac: mtkclient-macos-x64.tar.gz
 export STUDIO_POCKET_E2FS_DIR=~/studio-pocket-tools/e2fsprogs
 export STUDIO_POCKET_MTK_BIN=~/studio-pocket-tools/mtkclient/mtk
 ```

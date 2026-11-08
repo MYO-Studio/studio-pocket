@@ -40,7 +40,7 @@ ran with it, with no download agent or preloader inside it and the download agen
 |---|---|
 | `StudioPocket-0.6.0.apk`, `player.json` | The player, signed with the release key, and its version, size and SHA-256 |
 | `studio-pocket-firmware-tools-0.6.0.tgz`, `studio-pocket-library-format-0.6.0.tgz`, `studio-pocket-sync-engine-0.6.0.tgz` | The packages, as `pnpm pack` builds them |
-| `mtkclient-macos-arm64.tar.gz`, `mtkclient-windows-x64.tar.gz` | mtkclient with the Studio Pocket patches, frozen into a standalone program, without MediaTek's download agent (fetched on first use, below) |
+| `mtkclient-macos-arm64.tar.gz` (Apple silicon), `mtkclient-macos-x64.tar.gz` (Intel), `mtkclient-windows-x64.tar.gz` | mtkclient with the Studio Pocket patches, frozen into a standalone program, without MediaTek's download agent (fetched on first use, below) |
 | `e2fsprogs-macos-universal.tar.gz`, `e2fsprogs-linux-x64.tar.gz`, `e2fsprogs-windows-x64.tar.gz` | `debugfs`, `e2fsck` and `dumpe2fs` |
 | `mtkclient-source.tar.gz`, `e2fsprogs-1.47.4.tar.gz`, `e2fsprogs-cygwin-src.tar.gz`, `libusb-<version>-source.tar.bz2` | The corresponding source of the GPL and LGPL code in the bundles |
 | `sbom-*.spdx.json` | An SPDX software bill of materials for each bundle |
