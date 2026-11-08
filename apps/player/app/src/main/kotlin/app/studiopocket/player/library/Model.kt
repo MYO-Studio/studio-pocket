@@ -65,4 +65,15 @@ data class LoadedLibrary(val playlists: List<LoadedPlaylist>, val hidden: List<P
 data class PlaybackState(val playlistId: String, val trackIndex: Int, val positionMs: Long, val updatedAt: String)
 
 /** One group as groups.json defines it, after tolerant parsing ([Groups.parse]). */
-data class GroupDef(val id: String, val title: String, val icon: String?, val playlists: List<String>)
+data class GroupDef(
+    val id: String,
+    val title: String,
+    val icon: String?,
+    val playlists: List<String>,
+    /** How the tile looks: "icon", "image", "covers" or "recent"; anything else reads as "icon". */
+    val display: String = Groups.DISPLAY_ICON,
+    /** The custom front-card picture, "groups/<file>", or null. */
+    val image: String? = null,
+    /** Up to 3 playlist ids for "covers", first = top card. */
+    val covers: List<String> = emptyList(),
+)

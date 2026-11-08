@@ -43,6 +43,7 @@ import app.studiopocket.player.settings.SettingsPage
 import app.studiopocket.player.settings.SettingsStore
 import app.studiopocket.player.settings.VolumeCap
 import app.studiopocket.player.ui.Artwork
+import app.studiopocket.player.ui.CoverThumbs
 import app.studiopocket.player.ui.BackHold
 import app.studiopocket.player.ui.GroupsScreen
 import app.studiopocket.player.ui.LibraryScreen
@@ -203,6 +204,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
         if (storageAvailable) stateStore.ensureDeviceMarker(BuildConfigCompat.versionName(this))
         Artwork.clear()
         PixelIcon.clear()
+        CoverThumbs.clear()
         settings.playlistCount = library.playlists.size
         groupDefs = if (storageAvailable) Groups.load(root) else emptyList()
         refreshGroups(readRecent = nav.flat || nav.screen == PlayerNav.Screen.GROUPS)

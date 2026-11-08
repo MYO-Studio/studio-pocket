@@ -85,14 +85,15 @@ await writeFile(path.join(root, 'device.json'), JSON.stringify({ format: 'studio
 await mkdir(path.join(root, 'state'), { recursive: true });
 await writeFile(path.join(root, 'state', 'bedtime.json'), JSON.stringify({ format: 'studiopocket-state', formatVersion: 1, playlistId: 'bedtime', trackIndex: 1, positionMs: 1500, updatedAt: GENERATED_AT }, null, 2) + '\n');
 // Groups: one with an icon and an id that is not on the player, one whose only other playlist is
-// the truncated one (so it shows just songs), and one that is empty (the player hides it).
+// the truncated one (so it shows just songs) and that shows a chosen cover, and one that is empty
+// (the player hides it).
 await mkdir(path.join(root, 'groups'), { recursive: true });
 await copyFile(path.join(fixtures, 'images', 'pixel-moon.png'), path.join(root, 'groups', 'g-bedtime.png'));
 await writeFile(path.join(root, 'groups.json'), JSON.stringify({
     format: 'studiopocket-groups', formatVersion: 1, updatedAt: GENERATED_AT, generator: 'library-format/fixtures',
     groups: [
         { id: 'g-bedtime', title: 'Bedtime', icon: 'groups/g-bedtime.png', iconRef: 'yoto:fixture-moon', playlists: ['bedtime', 'gone-away'] },
-        { id: 'g-music', title: 'Music', icon: null, playlists: ['broken', 'songs'] },
+        { id: 'g-music', title: 'Music', icon: null, playlists: ['broken', 'songs'], display: 'covers', covers: ['songs'] },
         { id: 'g-empty', title: 'Empty', playlists: [] },
     ],
 }, null, 2) + '\n');
