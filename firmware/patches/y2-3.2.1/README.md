@@ -1,5 +1,8 @@
 # Patch: replace the stock launcher (Y2 stock 3.2.1)
 
+The same patch applies unchanged to 3.2.4: checked on a read of a 3.2.4 player, the launcher is
+at the same path (`MyLauncher.apk`, 61,822,056 B, label `u:object_r:system_file:s0`) with no `.odex`.
+
 Applied by `packages/firmware-tools` (`studio-pocket-firmware prepare-device`, and with the
 installed APK in place of the stock launcher by `prepare-upgrade`) to the copy of the system
 partition read from the player itself. Recorded here so the change to the vendor image is

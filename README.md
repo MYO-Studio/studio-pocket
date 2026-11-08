@@ -27,8 +27,8 @@ Start with [docs/architecture/overview.md](docs/architecture/overview.md) for ho
 together.
 
 **Status.** Install, restore, playback and loading a library have been run end to end on a real Y2
-from a Mac, with the commands below. The installer knows two stock firmware builds: 3.2.1, and
-3.2.0 with the FM Radio app (the one tested on hardware so far). It refuses any other. What has
+from a Mac, with the commands below. The installer knows three stock firmware builds: 3.2.1,
+3.2.0 with the FM Radio app (the one tested on hardware so far), and 3.2.4. It refuses any other. What has
 and has not been run on a player: [docs/tested-hardware.md](docs/tested-hardware.md). Treat this as
 a project for people comfortable with a terminal.
 

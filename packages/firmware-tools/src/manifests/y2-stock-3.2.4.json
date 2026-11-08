@@ -1,0 +1,259 @@
+{
+  "$comment": "Identity of the Innioasis Y2 3.2.4 firmware (Settings -> About says 3.2.4; the launcher APK itself reports versionName 3.2.3, versionCode 323). No ROM for this build is published, so there is no source package: this manifest is taken from a read-only read of a user's player (read-device window 0x5180000+0x34800000, SHA-256 90f87762ded11ca8ed6aa8c424835932641b2fb9248130391ec1bcc6dbd633bc) and identifies the build on the device path only. Measured on that read: ANDROID at linear 0x5d00000, 0x33400000 bytes, CACHE superblock at its end (the same layout as the tested 3.2.0-fm unit), 209920 x 4 KiB blocks. The other partitions were not part of the read and are carried over from 3.2.0-fm/3.2.1; the device path writes only to the layout measured on each player.",
+  "device": "Innioasis Y2",
+  "firmwareVersion": "3.2.4",
+  "platform": {
+    "soc": "MT6582",
+    "mediatekProject": "eastaeon82_wet_kk",
+    "android": "4.4.2",
+    "apiLevel": 19,
+    "buildId": "KOT49H",
+    "buildFingerprint": "Y2/Y2/Y2:4.4.2/KOT49H/1787108138:user/test-keys",
+    "swVersion": "Y2-v1.0.0",
+    "customBuildVersion": "1787108138",
+    "storage": "EMMC",
+    "abi": [
+      "armeabi-v7a",
+      "armeabi"
+    ],
+    "fmRadio": true
+  },
+  "files": {},
+  "deviceRead": {
+    "windowSha256": "90f87762ded11ca8ed6aa8c424835932641b2fb9248130391ec1bcc6dbd633bc",
+    "systemSha256": "a1786f69e9ce504e112e9f5ed17de15997100adf01ad5f32bac5f6f414f1c427",
+    "systemBytes": 859832320,
+    "blockSize": 4096,
+    "blocks": 209920,
+    "freeBlocks": 80336,
+    "buildDateUtc": 1787108213,
+    "note": "systemSha256 is that one player's filesystem (its mount count and journal differ per unit), recorded for reference, not used to match."
+  },
+  "partitions": [
+    {
+      "index": 0,
+      "name": "PRELOADER",
+      "file": "preloader_eastaeon82_wet_kk.bin",
+      "physicalStart": "0x0",
+      "size": "0x1400000",
+      "region": "EMMC_BOOT_1",
+      "op": "BOOTLOADERS",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 1,
+      "name": "MBR",
+      "file": "MBR",
+      "physicalStart": "0x0",
+      "size": "0x80000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 2,
+      "name": "EBR1",
+      "file": "EBR1",
+      "physicalStart": "0x80000",
+      "size": "0x80000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 3,
+      "name": "PRO_INFO",
+      "file": null,
+      "physicalStart": "0x100000",
+      "size": "0x300000",
+      "op": "PROTECTED",
+      "download": false,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 4,
+      "name": "NVRAM",
+      "file": null,
+      "physicalStart": "0x400000",
+      "size": "0x500000",
+      "op": "BINREGION",
+      "download": false,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 5,
+      "name": "PROTECT_F",
+      "file": null,
+      "physicalStart": "0x900000",
+      "size": "0xa00000",
+      "op": "PROTECTED",
+      "download": false,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 6,
+      "name": "PROTECT_S",
+      "file": null,
+      "physicalStart": "0x1300000",
+      "size": "0xa00000",
+      "op": "PROTECTED",
+      "download": false,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 7,
+      "name": "SECCFG",
+      "file": null,
+      "physicalStart": "0x1d00000",
+      "size": "0x20000",
+      "op": "INVISIBLE",
+      "download": false,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 8,
+      "name": "UBOOT",
+      "file": "lk.bin",
+      "physicalStart": "0x1d20000",
+      "size": "0x60000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 9,
+      "name": "BOOTIMG",
+      "file": "boot.img",
+      "physicalStart": "0x1d80000",
+      "size": "0x1000000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 10,
+      "name": "RECOVERY",
+      "file": "recovery.img",
+      "physicalStart": "0x2d80000",
+      "size": "0x1000000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 11,
+      "name": "SEC_RO",
+      "file": "secro.img",
+      "physicalStart": "0x3d80000",
+      "size": "0x600000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 12,
+      "name": "MISC",
+      "file": null,
+      "physicalStart": "0x4380000",
+      "size": "0x80000",
+      "op": "INVISIBLE",
+      "download": false,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 13,
+      "name": "LOGO",
+      "file": "logo.bin",
+      "physicalStart": "0x4400000",
+      "size": "0x300000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 14,
+      "name": "EBR2",
+      "file": "EBR2",
+      "physicalStart": "0x4700000",
+      "size": "0x80000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 15,
+      "name": "EXPDB",
+      "file": null,
+      "physicalStart": "0x4780000",
+      "size": "0xa00000",
+      "op": "INVISIBLE",
+      "download": false,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 16,
+      "name": "ANDROID",
+      "file": "system.img",
+      "physicalStart": "0x5180000",
+      "size": "0x33400000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": true
+    },
+    {
+      "index": 17,
+      "name": "CACHE",
+      "file": "cache.img",
+      "physicalStart": "0x38580000",
+      "size": "0x7e00000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 18,
+      "name": "USRDATA",
+      "file": "userdata.img",
+      "physicalStart": "0x40380000",
+      "size": "0x32000000",
+      "op": "UPDATE",
+      "download": true,
+      "studioPocketTouches": false
+    },
+    {
+      "index": 19,
+      "name": "FAT",
+      "file": null,
+      "physicalStart": "0x72380000",
+      "size": "0x0",
+      "op": "INVISIBLE",
+      "download": false,
+      "studioPocketTouches": false,
+      "note": "User storage exposed over USB mass storage (vold sdcard0 = emmc@fat)"
+    },
+    {
+      "index": 20,
+      "name": "BMTPOOL",
+      "file": null,
+      "physicalStart": "0xffff00a8",
+      "size": "0x1500000",
+      "op": "RESERVED",
+      "download": false,
+      "studioPocketTouches": false
+    }
+  ],
+  "linearAddressOffset": "0x1400000",
+  "stockLauncher": {
+    "path": "/system/priv-app/MyLauncher.apk",
+    "package": "com.innioasis.y2",
+    "versionName": "3.2.3",
+    "homeActivity": "com.innioasis.y1.activity.SplashActivity",
+    "minSdk": 17,
+    "targetSdk": 34,
+    "sizeBytes": 61822056,
+    "sha256": "ff19eaa288d3a13a5a630bb813d8f4f881acbaef9e43a709f4c4ca194e27e7ba",
+    "signerSha256": "6c983a05e7cf0880f3b5f9c1d8030aaf432fccceb7166ec5b6507047bb17dc42",
+    "signerDn": "EMAILADDRESS=dsj@innioasis.com, CN=JUN, OU=CRT, O=INNIOASIS, L=ShenZhen, ST=guangdong, C=CN"
+  }
+}

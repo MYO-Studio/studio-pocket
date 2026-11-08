@@ -55,6 +55,10 @@ All passed unless the row says otherwise.
   build.
 - Stock firmware **3.2.1** (build `1786709305`): the installer knows it, but no tested player
   carried it.
+- Stock firmware **3.2.4** (build `1787108138`): known from a read-only read a user shared from their
+  own player. Offline, that read is identified as 3.2.4 with no problems, and `patch` plus `verify` on it
+  pass (`e2fsck -fn` clean, APK read back, SELinux label present). Nothing has been written to a 3.2.4
+  player, and no 3.2.4 player has booted Studio Pocket.
 - More than one player, or a player whose partition layout differs from this one.
 - Interrupting a write to the player. Only the sync copy has been interrupted on hardware.
 - The player 0.6.0 settings screens on hardware: the Bluetooth page, volume cap, sleep timer,
