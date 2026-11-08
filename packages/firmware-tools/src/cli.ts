@@ -91,7 +91,7 @@ const need = (flags: Record<string, string>, name: string): string => {
 };
 
 const log = (line: string) => console.log(line);
-const defaultManifests = ['y2-stock-3.2.1.json', 'y2-stock-3.2.0-fm.json'].map((n) => new URL(`./manifests/${n}`, import.meta.url).pathname);
+const defaultManifests = ['y2-stock-3.2.1.json', 'y2-stock-3.2.0-fm.json', 'y2-stock-3.2.4.json'].map((n) => new URL(`./manifests/${n}`, import.meta.url).pathname);
 
 function mtkEcho(progress: ReturnType<typeof parseMtkLine>, line: string): void {
     if (progress?.phase === 'read' || progress?.phase === 'write') {

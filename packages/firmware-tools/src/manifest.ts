@@ -25,8 +25,14 @@ export interface ManifestPartition {
 export interface FirmwareManifest {
     device: string;
     firmwareVersion: string;
-    source: { url: string; asset: string; sha256: string; sizeBytes: number; note?: string };
+    /**
+     * The published firmware package this build was taken from. Absent for a build known only
+     * from a read of a player (no ROM published): such a manifest identifies the build on the
+     * device path only, and the download/zip path refuses it.
+     */
+    source?: { url: string; asset: string; sha256: string; sizeBytes: number; note?: string };
     platform: { soc: string; mediatekProject: string; android: string; apiLevel: number; buildId: string; buildFingerprint: string; swVersion?: string; customBuildVersion?: string; fmRadio?: boolean };
+    /** Hashes of the published package's files; empty when there is no `source`. */
     files: Record<string, ManifestFile>;
     partitions: ManifestPartition[];
     linearAddressOffset: string;
@@ -53,9 +59,16 @@ export function parseManifest(text: string): FirmwareManifest {
  */
 export function validateManifest(manifest: FirmwareManifest): void {
     const problems: string[] = [];
-    if (!manifest.files?.['system.img']) problems.push('files.system.img is required');
-    if (!manifest.files?.['MT6582_Android_scatter.txt']) problems.push('files.MT6582_Android_scatter.txt is required');
-    if (!/^[0-9a-f]{64}$/.test(manifest.source?.sha256 ?? '')) problems.push('source.sha256 must be a hex SHA-256');
+    if (manifest.source) {
+        if (!manifest.files?.['system.img']) problems.push('files.system.img is required');
+        if (!manifest.files?.['MT6582_Android_scatter.txt']) problems.push('files.MT6582_Android_scatter.txt is required');
+        if (!/^[0-9a-f]{64}$/.test(manifest.source.sha256 ?? '')) problems.push('source.sha256 must be a hex SHA-256');
+    } else {
+        // Without a published package the read is the only evidence: the build number picks the
+        // manifest, and the stock launcher's exact hash must confirm it before anything is replaced.
+        if (!manifest.platform?.customBuildVersion) problems.push('platform.customBuildVersion is required when there is no source package');
+        if (!/^[0-9a-f]{64}$/.test(manifest.stockLauncher?.sha256 ?? '')) problems.push('stockLauncher.sha256 must be a hex SHA-256 when there is no source package');
+    }
 
     const partitions = manifest.partitions ?? [];
     const touched = partitions.filter((p) => p.studioPocketTouches);
