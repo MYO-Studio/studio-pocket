@@ -47,6 +47,14 @@ The CLA lets Ashworth Digital Ltd offer your contribution under both licences. I
 commercial licence ([COPYING.commercial](COPYING.commercial)), and both can only cover your code if
 the holder may license it both ways.
 
+## Branches
+
+- `develop` is where work lands: open pull requests against it. Unreleased changes collect there.
+- `main` is what releases are built from. It only moves when `develop` (or a fix for a release) is
+  merged into it, and every release tag (`v*`) is made on `main`. The release workflow refuses a tag
+  on a commit that is not on `main`.
+- Name feature branches for the change (for example `firmware-3.2.4`) and branch them from `develop`.
+
 ## Pull requests
 
 - Keep each pull request to one change, with tests where the change can be tested.

@@ -26,7 +26,19 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  # Releases are built from main only: a v* tag on a commit main does not contain builds nothing.
+  from-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false, fetch-depth: 0 }
+      - name: The tagged commit is on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main; merge develop into main and tag there"; exit 1; }
   tarballs:
+    needs: from-main
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -76,6 +88,7 @@ jobs:
           if-no-files-found: error
 
   tools:
+    needs: from-main
     strategy:
       fail-fast: true
       matrix:
@@ -230,6 +243,7 @@ jobs:
           if-no-files-found: error
 
   source:
+    needs: from-main
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -344,6 +358,7 @@ jobs:
           if-no-files-found: error
 
   player:
+    needs: from-main
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: release   # the only job that can read the release secrets
