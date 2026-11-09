@@ -65,13 +65,18 @@ if [ -n "${LIBUSB_DIR:-}" ]; then
   for f in libusb-1.0.0.dylib COPYING VERSION; do
     [ -f "$LIBUSB_DIR/$f" ] || { echo "LIBUSB_DIR=$LIBUSB_DIR has no $f (build it with scripts/build-libusb-macos.sh)"; exit 1; }
   done
-  LIBUSB_ARGS=(--add-binary "$LIBUSB_DIR/libusb-1.0.0.dylib:.")
-  # PyInstaller's usb hook would otherwise also add whichever libusb pyusb finds on this Mac.
-  export PYINSTALLER_USB_HOOK_SKIP_PYUSB_DISCOVERY=1
+  # PyInstaller's own usb hook would also add whichever libusb it finds on this Mac: with pyusb
+  # discovery skipped it still falls back to ctypes.util.find_library, which finds Homebrew's in
+  # /usr/local/lib on Intel. Our hook (written below) replaces it and adds nothing.
+  LIBUSB_ARGS=(--add-binary "$LIBUSB_DIR/libusb-1.0.0.dylib:." --additional-hooks-dir "$WORK/hooks")
 fi
 
 echo "== building"
 rm -rf "$WORK"; mkdir -p "$WORK"
+if [ -n "${LIBUSB_DIR:-}" ]; then
+  mkdir -p "$WORK/hooks"
+  printf '# The libusb comes from LIBUSB_DIR (--add-binary); collect no other.\nhiddenimports = ["glob"]\nbinaries = []\n' > "$WORK/hooks/hook-usb.py"
+fi
 # The venv's own mtk launcher is an .exe on Windows, so PyInstaller gets this equivalent script.
 printf 'import sys\nfrom mtkclient.mtk import main\nif __name__ == "__main__":\n    sys.exit(main())\n' > "$WORK/mtk.py"
 "$BIN/pyinstaller" --noconfirm --clean --onedir --name mtk \
