@@ -17,8 +17,15 @@ data class TrackChange(val index: Int, val play: Boolean) {
         fun afterCompletion(index: Int, size: Int, sleepDue: Boolean): TrackChange =
             if (index + 1 >= size) TrackChange(0, play = false) else TrackChange(index + 1, play = !sleepDue)
 
-        /** Next/Previous wrap round. Only a skip while [playing] honours the timer: from paused or stopped a key means Play. */
-        fun skip(index: Int, delta: Int, size: Int, playing: Boolean, sleepDue: Boolean): TrackChange =
-            TrackChange(((index + delta) % size + size) % size, play = !(playing && sleepDue))
+        /**
+         * Next/Previous stop at the first and last track (null: nothing to do), like the cover flow.
+         * Only a skip while [playing] honours the timer: from paused or stopped a key means Play.
+         */
+        fun skip(index: Int, delta: Int, size: Int, playing: Boolean, sleepDue: Boolean): TrackChange? =
+            jump(index + delta, size, playing, sleepDue)
+
+        /** Straight to track [target], as chosen with the ring and the centre button; null when there is no such track. */
+        fun jump(target: Int, size: Int, playing: Boolean, sleepDue: Boolean): TrackChange? =
+            if (target !in 0 until size) null else TrackChange(target, play = !(playing && sleepDue))
     }
 }

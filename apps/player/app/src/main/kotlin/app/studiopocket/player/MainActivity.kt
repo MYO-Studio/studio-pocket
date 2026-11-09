@@ -43,6 +43,7 @@ import app.studiopocket.player.settings.SettingsPage
 import app.studiopocket.player.settings.SettingsStore
 import app.studiopocket.player.settings.VolumeCap
 import app.studiopocket.player.ui.Artwork
+import app.studiopocket.player.ui.CoverThumbs
 import app.studiopocket.player.ui.BackHold
 import app.studiopocket.player.ui.GroupsScreen
 import app.studiopocket.player.ui.LibraryScreen
@@ -195,6 +196,8 @@ class MainActivity : Activity(), PlaybackService.Listener {
         handler.removeCallbacks(autoClose)   // never closes settings behind the stock Bluetooth screen
         EventLog.shared.removeListener(logListener)
         handler.removeCallbacks(progressTick)
+        handler.removeCallbacks(browseTimeout)
+        nav.endBrowse()
         super.onPause()
     }
 
@@ -203,6 +206,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
         if (storageAvailable) stateStore.ensureDeviceMarker(BuildConfigCompat.versionName(this))
         Artwork.clear()
         PixelIcon.clear()
+        CoverThumbs.clear()
         settings.playlistCount = library.playlists.size
         groupDefs = if (storageAvailable) Groups.load(root) else emptyList()
         refreshGroups(readRecent = nav.flat || nav.screen == PlayerNav.Screen.GROUPS)
@@ -265,7 +269,10 @@ class MainActivity : Activity(), PlaybackService.Listener {
         }
         if (!down || event.repeatCount > 0) return true
         val screen = nav.screen
-        val action = nav.onKey(name, hasPlayback = currentPlaylist != null)
+        val s = service
+        val action = nav.onKey(name, hasPlayback = currentPlaylist != null, playingTrack = s?.trackIndex ?: 0, trackCount = s?.playlist?.manifest?.tracks?.size ?: 0)
+        handler.removeCallbacks(browseTimeout)
+        if (nav.browsing != null) handler.postDelayed(browseTimeout, BROWSE_IDLE_MS)
         if (screen == PlayerNav.Screen.SETTINGS && action == PlayerNav.Action.None) {
             if (!settings.onKey(name)) { leaveSettings(); nav.closeSettings() }
         }
@@ -283,6 +290,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             PlayerNav.Action.TogglePause -> service?.togglePause()
             PlayerNav.Action.NextTrack -> service?.next()
             PlayerNav.Action.PreviousTrack -> service?.previous()
+            is PlayerNav.Action.PlayTrack -> service?.playTrack(action.index)
             PlayerNav.Action.Redraw, PlayerNav.Action.None -> Unit
         }
         render()
@@ -362,6 +370,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             PlaybackService.Status.PREPARING -> NowPlayingScreen.Status.PREPARING
             else -> NowPlayingScreen.Status.STOPPED
         }
+        val browsing = nav.browsing?.takeIf { s?.playlist?.manifest?.tracks?.indices?.contains(it) == true }
         nowPlaying.update(NowPlayingScreen.State(
             playlist = s?.playlist,
             trackIndex = s?.trackIndex ?: 0,
@@ -373,6 +382,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             sleepMinutesLeft = s?.sleepMinutesLeft,
             batteryPercent = batteryPercent,
             charging = charging,
+            browsing = browsing,
         ))
         view.screen = nowPlaying
         handler.removeCallbacks(progressTick)
@@ -392,6 +402,8 @@ class MainActivity : Activity(), PlaybackService.Listener {
     }
 
     private val progressTick = Runnable { if (nav.screen == PlayerNav.Screen.PLAYER) renderPlayer() }
+    /** A ring browse left alone: back to the playing track. */
+    private val browseTimeout = Runnable { if (nav.endBrowse()) render() }
 
     private fun renderDiagnostics() {
         val metrics = DisplayMetrics()
@@ -417,6 +429,8 @@ class MainActivity : Activity(), PlaybackService.Listener {
     companion object {
         private const val TAG = "StudioPocket"
         private const val SETTINGS_IDLE_MS = 120_000L
+        /** How long a ring browse on the player screen waits for centre before showing the playing track again. */
+        private const val BROWSE_IDLE_MS = 5_000L
     }
 }
 
