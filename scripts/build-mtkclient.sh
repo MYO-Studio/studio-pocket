@@ -60,6 +60,8 @@ PATCHES=$(grep -c "Studio Pocket patch" "$SITE"/mtkclient/Library/Port.py "$SITE
 
 LIBUSB_ARGS=()
 if [ -n "${LIBUSB_DIR:-}" ]; then
+  # Absolute: PyInstaller resolves --add-binary paths from its work folder, not from here.
+  LIBUSB_DIR="$(cd "$LIBUSB_DIR" && pwd)" || { echo "LIBUSB_DIR=$LIBUSB_DIR is not a folder"; exit 1; }
   for f in libusb-1.0.0.dylib COPYING VERSION; do
     [ -f "$LIBUSB_DIR/$f" ] || { echo "LIBUSB_DIR=$LIBUSB_DIR has no $f (build it with scripts/build-libusb-macos.sh)"; exit 1; }
   done
