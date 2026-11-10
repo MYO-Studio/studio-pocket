@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.KeyEvent
@@ -51,6 +52,7 @@ import app.studiopocket.player.ui.NowPlayingScreen
 import app.studiopocket.player.ui.PixelIcon
 import app.studiopocket.player.ui.PlayerNav
 import app.studiopocket.player.ui.PlayerView
+import app.studiopocket.player.ui.RingLag
 import app.studiopocket.player.ui.SettingsScreen
 import app.studiopocket.player.ui.TextScreen
 import app.studiopocket.player.ui.Ui
@@ -92,6 +94,8 @@ class MainActivity : Activity(), PlaybackService.Listener {
     private var backFromHome = false
     /** After the hold fires, the rest of that Back press (repeats and the UP) is ignored. */
     private var swallowBack = false
+    /** Late ring steps dropped since the last key that was acted on, logged once with that key. */
+    private var droppedRingSteps = 0
     private val logListener: () -> Unit = { handler.post { if (nav.screen == PlayerNav.Screen.DIAGNOSTICS) renderDiagnostics() } }
 
     private val root: File get() = File(Environment.getExternalStorageDirectory(), LibraryFormat.ROOT_DIR)
@@ -240,6 +244,9 @@ class MainActivity : Activity(), PlaybackService.Listener {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val name = KeyEvent.keyCodeToString(event.keyCode)
+        // A ring step that sat in the input queue behind a fast spin is dropped unlogged ([RingLag]).
+        if (RingLag.drop(name, event.eventTime, SystemClock.uptimeMillis())) { droppedRingSteps++; return true }
+        if (droppedRingSteps > 0) { EventLog.shared.add("ring: dropped $droppedRingSteps late steps"); droppedRingSteps = 0 }
         if (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP) {
             EventLog.shared.add(Y2Keys.describe(if (event.action == KeyEvent.ACTION_DOWN) "DOWN" else "UP", name, event.scanCode, event.repeatCount))
         }
