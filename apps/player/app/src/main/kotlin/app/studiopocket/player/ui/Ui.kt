@@ -13,7 +13,7 @@ import android.util.Log
 
 /**
  * The player's tiny design system, ported from the author's earlier Y1 player: a fixed 480x360
- * logical canvas, five colours, one typeface and the drawing helpers every screen needs.
+ * logical canvas, a handful of colours, one typeface and the drawing helpers every screen needs.
  * Screens draw in logical units only; [PlayerView] scales and letterboxes to the real panel.
  * Nothing is smaller than [TEXT]: the Y2's 2.4" panel is read at arm's length.
  */
@@ -28,6 +28,10 @@ object Ui {
     val accent = 0xFF9467E0.toInt()
     /** Warnings stay amber, as on the desktop. */
     val warn = 0xFFF2B33D.toInt()
+    /** Battery cell with plenty left. */
+    val good = 0xFF4CC38A.toInt()
+    /** Battery cell when nearly empty. */
+    val danger = 0xFFE5534B.toInt()
 
     const val TEXT = 18f
     const val LINE = 20f

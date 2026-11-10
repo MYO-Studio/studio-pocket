@@ -120,7 +120,7 @@ class CardRenderer {
         c.drawText(text, Ui.MARGIN, BATT_BASELINE, groupText)
     }
 
-    /** Battery readout top-right: "84%" and a cell, accent while charging. Only when a level is known. */
+    /** Battery readout top-right: "84%" and a cell filled green, amber or red by level, accent while charging. Only when a level is known. */
     fun battery(c: Canvas, w: Int, percent: Int, charging: Boolean) {
         val pct = percent.coerceIn(0, 100)
         val right = w - Ui.MARGIN
@@ -129,7 +129,7 @@ class CardRenderer {
         c.drawRoundRect(rect, BATT_RADIUS, BATT_RADIUS, batteryShell)
         val mid = BATT_TOP + BATT_H / 2f
         c.drawRect(right - BATT_CAP_W, mid - BATT_CAP_H / 2f, right, mid + BATT_CAP_H / 2f, batteryShell)
-        batteryLevel.color = if (charging) Ui.accent else Ui.inkDim
+        batteryLevel.color = LowBattery.cellColour(pct, charging)
         val inner = BATT_W - 2 * (BATT_STROKE + BATT_PAD)
         val fillLeft = bodyLeft + BATT_STROKE + BATT_PAD
         c.drawRect(fillLeft, BATT_TOP + BATT_STROKE + BATT_PAD, fillLeft + inner * pct / 100f, BATT_TOP + BATT_H - BATT_STROKE - BATT_PAD, batteryLevel)
