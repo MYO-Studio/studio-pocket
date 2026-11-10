@@ -399,4 +399,27 @@ class PlayerNavTest {
         assertEquals(PlayerNav.Action.OpenedGroup(0), nav.onKey(CENTRE, hasPlayback = true))
         assertEquals(PlayerNav.Action.PlaySelected(0), nav.onKey(CENTRE, hasPlayback = true))
     }
+
+    @Test
+    fun showPlayerOpensNowPlayingOverTheGivenCoverFlow() {
+        val nav = PlayerNav(0)
+        nav.setGroups(listOf(PlayerNav.Group("recent", 2), PlayerNav.Group("bedtime", 3), PlayerNav.Group("all", 5)), flat = false)
+        assertEquals(PlayerNav.Screen.GROUPS, nav.screen)
+        assertTrue(nav.showPlayer(2, 4))
+        assertEquals(PlayerNav.Screen.PLAYER, nav.screen)
+        assertEquals(2, nav.group)
+        assertEquals(4, nav.selected)
+        nav.onKey("KEYCODE_BACK")
+        assertEquals(PlayerNav.Screen.HOME, nav.screen)     // Back from Now Playing: that cover flow
+        assertEquals(4, nav.selected)
+    }
+
+    @Test
+    fun showPlayerOnlyFromTheGroupsScreenOrACoverFlow() {
+        val nav = PlayerNav(0)
+        nav.setGroups(listOf(PlayerNav.Group("all", 3)), flat = true)
+        assertFalse(nav.showPlayer(0, 3))                   // no such playlist
+        assertTrue(nav.showPlayer(0, 1))
+        assertFalse(nav.showPlayer(0, 2))                   // already on Now Playing
+    }
 }

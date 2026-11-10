@@ -47,6 +47,7 @@ import app.studiopocket.player.settings.SettingsStore
 import app.studiopocket.player.settings.VolumeCap
 import app.studiopocket.player.ui.Artwork
 import app.studiopocket.player.ui.CoverThumbs
+import app.studiopocket.player.ui.BackDouble
 import app.studiopocket.player.ui.BackHold
 import app.studiopocket.player.ui.GroupsScreen
 import app.studiopocket.player.ui.LibraryScreen
@@ -100,6 +101,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
     /** Late ring steps dropped since the last key that was acted on, logged once with that key. */
     private var droppedRingSteps = 0
     private val seekHold = SeekHold()
+    private val backDouble = BackDouble()
     /** Saved cover-bar positions by playlist id (null: never played), for the current cover-flow visit. */
     private val progressCache = HashMap<String, CoverProgress?>()
     /** The screen the last render drew, so arriving at the cover flow re-reads the saved positions. */
@@ -279,7 +281,14 @@ class MainActivity : Activity(), PlaybackService.Listener {
         }
         val down = event.action == KeyEvent.ACTION_DOWN
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (down && event.repeatCount == 0) { backFromHome = nav.isRoot; swallowBack = false }
+            if (down && event.repeatCount == 0) {
+                backFromHome = nav.isRoot; swallowBack = false
+                // The second of two quick presses jumps to Now Playing; the rest of that press is ignored.
+                if (backDouble.onPress(event.eventTime, nav.screen) && showNowPlaying()) {
+                    swallowBack = true
+                    return true
+                }
+            }
             if (swallowBack) {
                 if (event.action == KeyEvent.ACTION_UP) swallowBack = false
                 return true
@@ -302,6 +311,22 @@ class MainActivity : Activity(), PlaybackService.Listener {
         }
         if (!down || event.repeatCount > 0) return true
         onNavKey(name)
+        return true
+    }
+
+    /**
+     * Opens Now Playing for the loaded playlist, with a cover flow that holds it behind: the open one
+     * if it does, else All. False when nothing is playing or paused, or it is no longer in the library.
+     */
+    private fun showNowPlaying(): Boolean {
+        val playing = currentPlaylist ?: return false
+        val open = groups.groups.getOrNull(nav.group)?.playlists?.indexOfFirst { it.id == playing.id } ?: -1
+        val (group, index) = if (open >= 0) nav.group to open
+            else groups.groups.lastIndex to groups.groups.last().playlists.indexOfFirst { it.id == playing.id }
+        if (!nav.showPlayer(group, index)) return false
+        EventLog.shared.add("back twice: now playing")
+        handler.removeCallbacks(browseTimeout)
+        render()
         return true
     }
 

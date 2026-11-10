@@ -27,6 +27,9 @@ package app.studiopocket.player.ui
  * from while playback continues. Turning the ring is too easy to do by accident for it to change
  * what is playing.
  *
+ * Back pressed twice quickly on the groups screen or a cover flow jumps to Now Playing ([BackDouble],
+ * [showPlayer]) when something is playing or paused.
+ *
  * Settings (opened by holding Back on the root screen, see [BackHold]) is driven by its own
  * controller; the nav only passes play/pause through so playback stays controllable. Diagnostics
  * hangs off Settings.
@@ -165,6 +168,22 @@ class PlayerNav(playlistCount: Int) {
         browsing = null
         if (flat) { screen = Screen.HOME; return }
         if (screen == Screen.HOME) leaveCoverFlow() else screen = Screen.GROUPS
+    }
+
+    /**
+     * Straight to Now Playing (Back pressed twice), from the groups screen or a cover flow, with
+     * cover flow [group] open on playlist [index] behind it, so Back from Now Playing lands there.
+     * False, and nothing changes, from anywhere else or for a group or index that does not exist.
+     */
+    fun showPlayer(group: Int, index: Int): Boolean {
+        if (screen != Screen.GROUPS && screen != Screen.HOME) return false
+        if (group !in groups.indices || index !in 0 until groups[group].size) return false
+        if (screen == Screen.HOME) positions[groups[this.group].key] = selected
+        this.group = group
+        selected = index
+        browsing = null
+        screen = Screen.PLAYER
+        return true
     }
 
     fun openSettings() { if (isRoot) screen = Screen.SETTINGS }
