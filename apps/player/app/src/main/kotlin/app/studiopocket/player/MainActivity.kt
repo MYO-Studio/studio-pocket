@@ -36,6 +36,7 @@ import app.studiopocket.player.library.LibraryLoader
 import app.studiopocket.player.library.LoadedLibrary
 import app.studiopocket.player.library.LoadedPlaylist
 import app.studiopocket.player.library.PlaylistGroup
+import app.studiopocket.player.library.PlaylistProgress
 import app.studiopocket.player.library.RecentStore
 import app.studiopocket.player.library.StateStore
 import app.studiopocket.player.playback.PlaybackService
@@ -98,6 +99,10 @@ class MainActivity : Activity(), PlaybackService.Listener {
     /** Late ring steps dropped since the last key that was acted on, logged once with that key. */
     private var droppedRingSteps = 0
     private val seekHold = SeekHold()
+    /** Saved cover-bar positions by playlist id (null: never played), for the current cover-flow visit. */
+    private val progressCache = HashMap<String, Float?>()
+    /** The screen the last render drew, so arriving at the cover flow re-reads the saved positions. */
+    private var lastRendered: PlayerNav.Screen? = null
     private val logListener: () -> Unit = { handler.post { if (nav.screen == PlayerNav.Screen.DIAGNOSTICS) renderDiagnostics() } }
 
     private val root: File get() = File(Environment.getExternalStorageDirectory(), LibraryFormat.ROOT_DIR)
@@ -216,6 +221,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
         if (storageAvailable) stateStore.ensureDeviceMarker(BuildConfigCompat.versionName(this))
         Artwork.clear()
         PixelIcon.clear()
+        progressCache.clear()
         CoverThumbs.clear()
         settings.playlistCount = library.playlists.size
         groupDefs = if (storageAvailable) Groups.load(root) else emptyList()
@@ -383,6 +389,11 @@ class MainActivity : Activity(), PlaybackService.Listener {
     // --- rendering ---
 
     private fun render() {
+        renderScreen()
+        lastRendered = nav.screen
+    }
+
+    private fun renderScreen() {
         diagnostics.visibility = if (nav.screen == PlayerNav.Screen.DIAGNOSTICS) View.VISIBLE else View.GONE
         view.visibility = if (nav.screen == PlayerNav.Screen.DIAGNOSTICS) View.GONE else View.VISIBLE
         when (nav.screen) {
@@ -423,9 +434,32 @@ class MainActivity : Activity(), PlaybackService.Listener {
             playing = s?.status == PlaybackService.Status.PLAYING,
             batteryPercent = batteryPercent,
             charging = charging,
+            progress = progressFor(group.playlists),
         ))
         libraryScreen.select(nav.selected)
         view.screen = libraryScreen
+    }
+
+    /**
+     * The cover bars for [playlists]: live from the service for its playlist, else from each saved
+     * state. Saved states are read once per visit to the cover flow ([progressCache] is cleared on the
+     * way in and when the library reloads), not on every ring step.
+     */
+    private fun progressFor(playlists: List<LoadedPlaylist>): Map<String, Float> {
+        if (lastRendered != PlayerNav.Screen.HOME) progressCache.clear()
+        val s = service
+        val live = s?.playlist?.takeIf { s.status == PlaybackService.Status.PLAYING || s.status == PlaybackService.Status.PAUSED }
+        val result = HashMap<String, Float>()
+        for (p in playlists) {
+            val f = if (p.id == live?.id) {
+                PlaylistProgress.fraction(p.manifest.tracks, s.trackIndex, s.positionMs)
+            } else if (storageAvailable) {
+                if (!progressCache.containsKey(p.id)) progressCache[p.id] = PlaylistProgress.fraction(p.manifest.tracks, stateStore.read(p.id))
+                progressCache[p.id]
+            } else null
+            if (f != null) result[p.id] = f
+        }
+        return result
     }
 
     private fun renderPlayer() {

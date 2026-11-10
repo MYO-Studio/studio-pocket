@@ -34,6 +34,8 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val playing: Boolean,
         val batteryPercent: Int,
         val charging: Boolean,
+        /** How far through each playlist (by id) its last played position is, 0..1; absent shows no bar. */
+        val progress: Map<String, Float> = emptyMap(),
     )
 
     private val cards = CardRenderer()
@@ -113,7 +115,7 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val save = c.save()
         c.rotate(fan * FAN_ANGLE, pivotX, CARD_BOTTOM)
         c.scale(scale, scale, pivotX, CARD_BOTTOM)
-        cards.card(c, playlists[index], left, alpha, index == selected)
+        cards.card(c, playlists[index], left, alpha, index == selected, state.progress[playlists[index].id])
         c.restoreToCount(save)
     }
 

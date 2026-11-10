@@ -39,6 +39,8 @@ class CardRenderer {
     private val groupText = Ui.text(Ui.TEXT, Ui.inkDim)
     private val batteryShell = Paint(Paint.ANTI_ALIAS_FLAG)
     private val batteryLevel = Ui.fill(Ui.inkDim)
+    private val progressTrack = Ui.fill(0xFF000000.toInt())
+    private val progressFill = Ui.fill(Ui.accent)
     private val rect = RectF()
     private val bitmapRect = RectF()
     private val triangle = Path()
@@ -50,8 +52,11 @@ class CardRenderer {
         batteryShell.style = Paint.Style.STROKE; batteryShell.strokeWidth = BATT_STROKE; batteryShell.color = Ui.inkDim
     }
 
-    /** [p]'s card with its left edge at [left]: cover (or placeholder), title band, selection ring. */
-    fun card(c: Canvas, p: LoadedPlaylist, left: Float, alpha: Int, selected: Boolean) {
+    /**
+     * [p]'s card with its left edge at [left]: cover (or placeholder), title band, selection ring, and
+     * a thin bar along the bottom of the cover, above the title band, when [progress] (0..1) is given.
+     */
+    fun card(c: Canvas, p: LoadedPlaylist, left: Float, alpha: Int, selected: Boolean, progress: Float? = null) {
         rect.set(left, LibraryScreen.CARD_TOP, left + LibraryScreen.CARD_W, LibraryScreen.CARD_BOTTOM)
         val bitmap: Bitmap? = Artwork.bitmap(p)
         if (bitmap != null) {
@@ -74,7 +79,17 @@ class CardRenderer {
         title.alpha = alpha
         val text = fit(title, p.id, p.title, LibraryScreen.CARD_W - 2 * TITLE_PAD)
         c.drawText(text, left + TITLE_PAD, rect.centerY() - (title.ascent() + title.descent()) / 2f, title)
+        if (progress != null) progressBar(c, left, progress, alpha)
         if (selected) ringAround(c, left)
+    }
+
+    /** Full width of the card, sitting on the title band: a dark track and an accent fill. */
+    private fun progressBar(c: Canvas, left: Float, progress: Float, alpha: Int) {
+        val bottom = LibraryScreen.CARD_BOTTOM - BAND_H
+        progressTrack.alpha = scale(PROGRESS_TRACK_ALPHA, alpha)
+        c.drawRect(left, bottom - PROGRESS_H, left + LibraryScreen.CARD_W, bottom, progressTrack)
+        progressFill.alpha = alpha
+        c.drawRect(left, bottom - PROGRESS_H, left + LibraryScreen.CARD_W * progress.coerceIn(0f, 1f), bottom, progressFill)
     }
 
     /** The selection ring sits just outside the card, its corners concentric with the card's. */
@@ -157,6 +172,8 @@ class CardRenderer {
         private const val MAX_FITTED = 32
         const val TITLE_SIZE = 22f
         const val BAND_H = 40f
+        const val PROGRESS_H = 5f
+        const val PROGRESS_TRACK_ALPHA = 140
         const val TITLE_PAD = 8f
         const val BAND_ALPHA = 179
         const val PLACEHOLDER_ALPHA = 51
