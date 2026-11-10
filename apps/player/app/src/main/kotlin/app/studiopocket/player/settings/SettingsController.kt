@@ -90,7 +90,7 @@ class SettingsController(
         SettingsPage.MAIN -> "Settings"
         SettingsPage.BLUETOOTH -> "Bluetooth"
         SettingsPage.BT_DEVICE -> btDevice()?.name ?: "Bluetooth device"
-        SettingsPage.VOLUME -> "Volume limit"
+        SettingsPage.VOLUME -> "Sound"
         SettingsPage.SLEEP -> "Sleep timer"
         SettingsPage.SCREEN -> "Screen"
         SettingsPage.ABOUT -> "About"
@@ -112,7 +112,7 @@ class SettingsController(
 
     fun footnote(): String? = when (page) {
         SettingsPage.BLUETOOTH, SettingsPage.BT_DEVICE -> bluetooth.state.message
-        SettingsPage.VOLUME -> "Headphone buttons may still go louder"
+        SettingsPage.VOLUME -> "Headphone buttons may still go louder than the limit"
         SettingsPage.SLEEP -> service?.sleepMinutesLeft?.let { "Stops in $it min" }
         SettingsPage.LICENCES -> "Studio Pocket ${BuildConfigCompat.versionName(activity)} is GPL-3.0-only"
         SettingsPage.LICENCE_TEXT -> TextLayout.position(textTop, textLines.size, textVisible)
@@ -147,7 +147,7 @@ class SettingsController(
 
     private fun mainRows() = listOf(
         SettingsRow("main.bluetooth", "Bluetooth"),
-        SettingsRow("main.volume", "Volume limit"),
+        SettingsRow("main.volume", "Sound"),
         SettingsRow("main.sleep", "Sleep timer"),
         SettingsRow("main.screen", "Screen"),
         SettingsRow("main.about", "About"),
@@ -217,11 +217,24 @@ class SettingsController(
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         return listOf(
             SettingsRow("volume.limit", "Volume limit", RowValue(VolumeCap.toIndex(store.volumeCap, max), VolumeCap.labels(max))),
+            SettingsRow(
+                "sound.click", "Click sound",
+                RowValue(ClickSound.toIndex(readSystem(Settings.System.SOUND_EFFECTS_ENABLED, 0)), ClickSound.LABELS),
+            ),
         )
     }
 
-    /** Saves the cap and clamps at once; the service's limiter holds it from then on. */
+    /**
+     * The click is written as it is previewed, so the next ring step already sounds (or doesn't).
+     * The cap is saved and clamped at once; the service's limiter holds it from then on.
+     */
     private fun onVolume(action: SettingsNav.Action) {
+        val clickIndex = when {
+            action is SettingsNav.Action.Preview && action.rowId == "sound.click" -> action.index
+            action is SettingsNav.Action.Commit && action.rowId == "sound.click" -> action.index
+            else -> null
+        }
+        if (clickIndex != null) { writeClickSound(ClickSound.fromIndex(clickIndex)); return }
         if (action !is SettingsNav.Action.Commit || action.rowId != "volume.limit") return
         store.volumeCap = VolumeCap.fromIndex(action.index, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC))
         // Before the service binds, clamp directly; its limiter enforces again when it starts.
@@ -282,6 +295,13 @@ class SettingsController(
         val value = ScreenSteps.BRIGHTNESS[index]
         writeSystem(Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         writeSystem(Settings.System.SCREEN_BRIGHTNESS, value)
+    }
+
+    /** As the stock Settings app does: the system value, then the click sounds loaded or let go. */
+    private fun writeClickSound(value: Int) {
+        if (readSystem(Settings.System.SOUND_EFFECTS_ENABLED, 0) == value) return
+        writeSystem(Settings.System.SOUND_EFFECTS_ENABLED, value)
+        if (value != 0) audio.loadSoundEffects() else audio.unloadSoundEffects()
     }
 
     private fun readSystem(name: String, default: Int): Int =
