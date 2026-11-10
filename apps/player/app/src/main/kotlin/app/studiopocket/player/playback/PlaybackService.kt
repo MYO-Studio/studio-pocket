@@ -20,6 +20,7 @@ import android.os.SystemClock
 import android.util.Log
 import app.studiopocket.player.library.LoadedPlaylist
 import app.studiopocket.player.library.PlaybackState
+import app.studiopocket.player.library.PlayMode
 import app.studiopocket.player.library.StateStore
 import app.studiopocket.player.settings.SettingsStore
 import java.io.IOException
@@ -55,6 +56,9 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
     private var ducked = false
 
     var playlist: LoadedPlaylist? = null; private set
+    /** The loaded playlist's play mode, read from its saved state when it starts. */
+    var mode = PlayMode.NORMAL; private set
+    private val shuffle = ShuffleOrder()
     var trackIndex = 0; private set
     var status = Status.IDLE; private set
     var lastError: String? = null; private set
@@ -123,6 +127,8 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         stopInternal(save = true)
         playlist = target
         val saved = store.read(target.id)
+        mode = saved?.mode ?: PlayMode.NORMAL
+        shuffle.reset()
         trackIndex = saved?.trackIndex?.takeIf { it in target.manifest.tracks.indices } ?: 0
         pendingSeekMs = if (saved?.trackIndex == trackIndex) saved.positionMs else 0L
         consecutiveErrors = 0
@@ -197,7 +203,24 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
 
     private fun skip(delta: Int) {
         val p = playlist ?: return
-        applyChange(p, TrackChange.skip(trackIndex, delta, p.manifest.tracks.size, status == Status.PLAYING, sleepDue()) ?: return)
+        val size = p.manifest.tracks.size
+        val shuffleTarget = if (mode != PlayMode.SHUFFLE) null else if (delta > 0) shuffle.next(trackIndex, size) else shuffle.previous()
+        applyChange(p, TrackChange.skip(trackIndex, delta, size, status == Status.PLAYING, sleepDue(), mode, shuffleTarget) ?: return)
+    }
+
+    /**
+     * Sets the loaded playlist's play mode and saves it with the playlist's state at once: the live
+     * position while playing or paused, else the saved state with only the mode changed.
+     */
+    fun setMode(next: PlayMode) {
+        val p = playlist ?: return
+        if (next == mode) return
+        mode = next
+        if (next == PlayMode.SHUFFLE) shuffle.reset()
+        val state = if (status == Status.PLAYING || status == Status.PAUSED) PlaybackState(p.id, trackIndex, positionMs, StateStore.now(), mode = next)
+            else stateStore?.read(p.id)?.copy(mode = next, updatedAt = StateStore.now()) ?: PlaybackState(p.id, trackIndex, 0L, StateStore.now(), mode = next)
+        stateStore?.write(state)
+        notifyListeners()
     }
 
     /**
@@ -215,13 +238,14 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         seekingToMs = target
         mp.setOnSeekCompleteListener { if (player === it) { seekingToMs = -1L; notifyListeners() } }
         try { mp.seekTo(target.toInt()) } catch (e: IllegalStateException) { seekingToMs = -1L; return }
-        stateStore?.write(PlaybackState(p.id, trackIndex, target, StateStore.now()))
+        stateStore?.write(PlaybackState(p.id, trackIndex, target, StateStore.now(), mode = mode))
         notifyListeners()
     }
 
     /** Plays track [index] of the loaded playlist from its start (the ring browses, the centre button picks). */
     fun playTrack(index: Int) {
         val p = playlist ?: return
+        if (mode == PlayMode.SHUFFLE && index != trackIndex) shuffle.moved(trackIndex)
         applyChange(p, TrackChange.jump(index, p.manifest.tracks.size, status == Status.PLAYING, sleepDue()) ?: return)
     }
 
@@ -300,8 +324,10 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
     override fun onCompletion(mp: MediaPlayer) {
         val p = playlist ?: return
         val size = p.manifest.tracks.size
-        val change = TrackChange.afterCompletion(trackIndex, size, sleepDue())
-        if (!change.play) { stopAt(p, change.index, finished = trackIndex + 1 >= size); return }
+        val shuffleNext = if (mode == PlayMode.SHUFFLE) shuffle.next(trackIndex, size) else 0
+        val change = TrackChange.afterCompletion(trackIndex, size, sleepDue(), mode, shuffleNext)
+        // Only Normal ends: the other modes play on, so only it can be finished.
+        if (!change.play) { stopAt(p, change.index, finished = mode == PlayMode.NORMAL && trackIndex + 1 >= size); return }
         trackIndex = change.index
         pendingSeekMs = 0L
         startTrack()
@@ -316,7 +342,7 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         trackIndex = index
         pendingSeekMs = 0L
         // [finished]: the playlist played to its end; the cover shows it finished until it plays again.
-        stateStore?.write(PlaybackState(p.id, index, 0L, StateStore.now(), finished))
+        stateStore?.write(PlaybackState(p.id, index, 0L, StateStore.now(), finished, mode))
         stopInternal(save = false)
         status = Status.STOPPED
         if (sleepDue()) fireSleepTimer() else notifyListeners()
@@ -344,7 +370,7 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
 
     private fun saveState() {
         val p = playlist ?: return
-        stateStore?.write(PlaybackState(p.id, trackIndex, positionMs, StateStore.now()))
+        stateStore?.write(PlaybackState(p.id, trackIndex, positionMs, StateStore.now(), mode = mode))
     }
 
     private fun stopInternal(save: Boolean) {

@@ -33,6 +33,9 @@ describe('validators accept the shared fixtures', () => {
         expect(validatePlaybackState({ ...base, finished: true }).finished).toBe(true);
         expect(validatePlaybackState(base)).not.toHaveProperty('finished');
         expect(validatePlaybackState({ ...base, finished: 'yes' })).not.toHaveProperty('finished');
+        expect(validatePlaybackState({ ...base, mode: 'shuffle' }).mode).toBe('shuffle');
+        expect(validatePlaybackState({ ...base, mode: 'normal' })).not.toHaveProperty('mode');
+        expect(validatePlaybackState({ ...base, mode: 'sideways' })).not.toHaveProperty('mode');
     });
 });
 

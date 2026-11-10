@@ -37,6 +37,7 @@ import app.studiopocket.player.library.LibraryLoader
 import app.studiopocket.player.library.LoadedLibrary
 import app.studiopocket.player.library.LoadedPlaylist
 import app.studiopocket.player.library.PlaylistGroup
+import app.studiopocket.player.library.PlayMode
 import app.studiopocket.player.library.CoverProgress
 import app.studiopocket.player.library.PlaylistProgress
 import app.studiopocket.player.library.RecentStore
@@ -53,6 +54,8 @@ import app.studiopocket.player.ui.ClockText
 import app.studiopocket.player.ui.BackHold
 import app.studiopocket.player.ui.GroupsScreen
 import app.studiopocket.player.ui.LibraryScreen
+import app.studiopocket.player.ui.LongPress
+import app.studiopocket.player.ui.ModeMenu
 import app.studiopocket.player.ui.NowPlayingScreen
 import app.studiopocket.player.ui.PixelIcon
 import app.studiopocket.player.ui.PlayerNav
@@ -105,6 +108,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
     private var droppedRingSteps = 0
     private val seekHold = SeekHold()
     private val backDouble = BackDouble()
+    private val centreHold = LongPress()
     /** Saved cover-bar positions by playlist id (null: never played), for the current cover-flow visit. */
     private val progressCache = HashMap<String, CoverProgress?>()
     /** The screen the last render drew, so arriving at the cover flow re-reads the saved positions. */
@@ -235,6 +239,9 @@ class MainActivity : Activity(), PlaybackService.Listener {
         handler.removeCallbacks(hideVolume)
         view.volume.hide()
         seekHold.cancel()
+        centreHold.cancel()
+        view.modeMenu.close()
+        handler.removeCallbacks(modeMenuIdle)
         nav.endBrowse()
         super.onPause()
     }
@@ -299,6 +306,12 @@ class MainActivity : Activity(), PlaybackService.Listener {
         if (volumeKey || event.keyCode == KeyEvent.KEYCODE_POWER) {
             return super.dispatchKeyEvent(event)
         }
+        // The play-mode menu, while open, takes the ring, arrows, Centre and Back ([ModeMenu]). Repeats
+        // are left alone, so the Centre hold that opened it cannot pick from it.
+        if (view.modeMenu.isOpen && event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && name in MODE_MENU_KEYS) {
+            onModeMenuKey(name)
+            return true
+        }
         val down = event.action == KeyEvent.ACTION_DOWN
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (down && event.repeatCount == 0) {
@@ -321,6 +334,11 @@ class MainActivity : Activity(), PlaybackService.Listener {
             settings.open()
             restartAutoClose()
             render()
+            return true
+        }
+        // Centre on the player: a tap acts on release (pause, or play the browsed track); a hold opens the play-mode menu.
+        if ((name == "KEYCODE_DPAD_CENTER" || name == "KEYCODE_ENTER") && (centreHold.active || nav.screen == PlayerNav.Screen.PLAYER)) {
+            onCentreKey(event, name)
             return true
         }
         // Next/Previous on the player: skip on release, scrub while held ([SeekHold]).
@@ -348,6 +366,45 @@ class MainActivity : Activity(), PlaybackService.Listener {
         handler.removeCallbacks(browseTimeout)
         render()
         return true
+    }
+
+    /** One Centre event on the player screen. */
+    private fun onCentreKey(event: KeyEvent, name: String) {
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) centreHold.press(event.downTime)
+                else if (centreHold.hold(event.eventTime)) openModeMenu()
+            KeyEvent.ACTION_UP -> if (centreHold.release(event.isCanceled)) onNavKey(name)
+        }
+    }
+
+    private fun openModeMenu() {
+        val s = service ?: return
+        if (s.playlist == null || nav.screen != PlayerNav.Screen.PLAYER) return
+        if (nav.endBrowse()) handler.removeCallbacks(browseTimeout)
+        view.modeMenu.open(s.mode)
+        restartModeMenuIdle()
+        render()
+    }
+
+    private fun onModeMenuKey(name: String) {
+        when (val r = view.modeMenu.onKey(name)) {
+            is ModeMenu.Result.Chose -> {
+                service?.setMode(r.mode)
+                EventLog.shared.add("play mode ${r.mode.id}")
+                handler.removeCallbacks(modeMenuIdle)
+            }
+            ModeMenu.Result.Closed -> { swallowBack = name == "KEYCODE_BACK"; handler.removeCallbacks(modeMenuIdle) }
+            ModeMenu.Result.Moved, ModeMenu.Result.Ignored -> restartModeMenuIdle()
+        }
+        render()
+    }
+
+    /** The menu closes by itself after [MODE_MENU_IDLE_MS] without a key, changing nothing. */
+    private val modeMenuIdle = Runnable { if (view.modeMenu.isOpen) { view.modeMenu.close(); render() } }
+
+    private fun restartModeMenuIdle() {
+        handler.removeCallbacks(modeMenuIdle)
+        handler.postDelayed(modeMenuIdle, MODE_MENU_IDLE_MS)
     }
 
     /** One Next/Previous event on the player screen. */
@@ -435,6 +492,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
     // --- rendering ---
 
     private fun render() {
+        if (view.modeMenu.isOpen && nav.screen != PlayerNav.Screen.PLAYER) view.modeMenu.close()
         renderScreen()
         lastRendered = nav.screen
     }
@@ -500,7 +558,8 @@ class MainActivity : Activity(), PlaybackService.Listener {
         val result = HashMap<String, CoverProgress>()
         for (p in playlists) {
             val f = if (p.id == live?.id) {
-                PlaylistProgress.fraction(p.manifest.tracks, s.trackIndex, s.positionMs)?.let { CoverProgress(it, finished = false) }
+                if (s.mode == PlayMode.SHUFFLE) null
+                else PlaylistProgress.fraction(p.manifest.tracks, s.trackIndex, s.positionMs)?.let { CoverProgress(it, finished = false) }
             } else if (storageAvailable) {
                 if (!progressCache.containsKey(p.id)) progressCache[p.id] = PlaylistProgress.cover(p.manifest.tracks, stateStore.read(p.id))
                 progressCache[p.id]
@@ -533,6 +592,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             browsing = browsing,
             scrub = if (seekHold.scrubbing) seekHold.direction else 0,
             clock = clockText(),
+            mode = s?.mode ?: PlayMode.NORMAL,
         ))
         view.screen = nowPlaying
         handler.removeCallbacks(progressTick)
@@ -581,6 +641,12 @@ class MainActivity : Activity(), PlaybackService.Listener {
         private const val SETTINGS_IDLE_MS = 120_000L
         /** How long a ring browse on the player screen waits for centre before showing the playing track again. */
         private const val BROWSE_IDLE_MS = 5_000L
+        /** The play-mode menu closes by itself after this long without a key. */
+        private const val MODE_MENU_IDLE_MS = 10_000L
+        private val MODE_MENU_KEYS = setOf(
+            "KEYCODE_DPAD_UP", "KEYCODE_DPAD_DOWN", "KEYCODE_DPAD_LEFT", "KEYCODE_DPAD_RIGHT",
+            "KEYCODE_DPAD_CENTER", "KEYCODE_ENTER", "KEYCODE_BACK",
+        )
     }
 }
 

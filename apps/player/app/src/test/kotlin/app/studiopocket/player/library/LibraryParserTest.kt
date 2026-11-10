@@ -59,6 +59,13 @@ class LibraryParserTest {
         assertFalse(LibraryParser.serializePlaybackState(state).contains("finished"))
         val finished = PlaybackState("bedtime", 0, 0L, "2026-10-18T12:00:00Z", finished = true)
         assertEquals(finished, LibraryParser.parsePlaybackState(LibraryParser.serializePlaybackState(finished)))
+        assertFalse(LibraryParser.serializePlaybackState(state).contains("mode"))
+        for (mode in PlayMode.values()) {
+            val withMode = state.copy(mode = mode)
+            assertEquals(withMode, LibraryParser.parsePlaybackState(LibraryParser.serializePlaybackState(withMode)))
+        }
+        val unknown = LibraryParser.serializePlaybackState(state).replace("\"updatedAt\"", "\"mode\": \"sideways\", \"updatedAt\"")
+        assertEquals(PlayMode.NORMAL, LibraryParser.parsePlaybackState(unknown).mode)
         val fixture = LibraryParser.parsePlaybackState(File(Fixtures.root, "state/bedtime.json").readText())
         assertEquals(1, fixture.trackIndex)
         assertEquals(1500L, fixture.positionMs)

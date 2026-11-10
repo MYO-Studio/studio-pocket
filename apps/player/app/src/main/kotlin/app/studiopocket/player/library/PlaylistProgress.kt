@@ -37,6 +37,8 @@ object PlaylistProgress {
     fun cover(tracks: List<Track>, state: PlaybackState?): CoverProgress? = when {
         state == null -> null
         state.finished -> CoverProgress.FINISHED
+        // A position says nothing about how much of a shuffled playlist has played.
+        state.mode == PlayMode.SHUFFLE -> null
         else -> fraction(tracks, state)?.let { CoverProgress(it, finished = false) }
     }
 }

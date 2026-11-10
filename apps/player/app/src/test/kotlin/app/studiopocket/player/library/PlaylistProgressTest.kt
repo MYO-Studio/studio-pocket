@@ -50,4 +50,9 @@ class PlaylistProgressTest {
         assertNull(PlaylistProgress.cover(chapters, null))
         assertNull(PlaylistProgress.cover(chapters, PlaybackState("p", 0, 0, "2026-11-10T00:00:00Z")))
     }
+
+    @Test fun aShuffledPlaylistShowsNoBar() {
+        assertNull(PlaylistProgress.cover(chapters, PlaybackState("p", 2, 5_000, "2026-11-10T00:00:00Z", mode = PlayMode.SHUFFLE)))
+        assertEquals(0.5f, PlaylistProgress.cover(chapters, PlaybackState("p", 2, 0, "2026-11-10T00:00:00Z", mode = PlayMode.REPEAT_ALL))!!.fraction, 0.0001f)
+    }
 }

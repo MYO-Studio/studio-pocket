@@ -96,7 +96,12 @@ export interface PlaybackState {
     updatedAt: string;
     /** Played through to the end (the position is then the top). Optional, written only when true (player 0.8.0+). */
     finished?: true;
+    /** The playlist's own play mode. Optional, absent for normal (player 0.8.0+). */
+    mode?: PlayMode;
 }
+
+export const PLAY_MODES = ['normal', 'repeat-all', 'repeat-one', 'shuffle'] as const;
+export type PlayMode = (typeof PLAY_MODES)[number];
 
 /*
  * Playlist groups (added 2026-10-21, still format version 1): two optional files at the root.

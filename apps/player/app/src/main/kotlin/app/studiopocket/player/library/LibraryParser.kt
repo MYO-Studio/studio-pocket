@@ -87,7 +87,9 @@ object LibraryParser {
         header(o, LibraryFormat.STATE, path)
         // "finished" is optional (absent before 0.8.0); only a true boolean counts.
         val finished = o.opt("finished") == true
-        return PlaybackState(id(o, "playlistId", path), int(o, "trackIndex", path, 0), long(o, "positionMs", path, 0), str(o, "updatedAt", path, 40), finished)
+        // "mode" is optional too (absent before 0.8.0, and for Normal); an unknown name reads as Normal.
+        val mode = PlayMode.fromId(o.opt("mode") as? String)
+        return PlaybackState(id(o, "playlistId", path), int(o, "trackIndex", path, 0), long(o, "positionMs", path, 0), str(o, "updatedAt", path, 40), finished, mode)
     }
 
     fun serializePlaybackState(state: PlaybackState): String = JSONObject().apply {
@@ -98,6 +100,7 @@ object LibraryParser {
         put("positionMs", state.positionMs)
         put("updatedAt", state.updatedAt)
         if (state.finished) put("finished", true)
+        if (state.mode != PlayMode.NORMAL) put("mode", state.mode.id)
     }.toString(2) + "\n"
 
     fun serializeDeviceMarker(deviceId: String, createdAt: String, playerVersion: String): String = JSONObject().apply {

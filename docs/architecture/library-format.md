@@ -79,6 +79,10 @@ position is then track 0 at 0 ms, ready to start again), and drops it at the nex
 again. The cover shows a finished playlist with a full bar and a tick. Older players ignore the field;
 readers treat anything but `true` as not finished.
 
+Also from 0.8.0, `"mode"` holds the playlist's own play mode, chosen on Now Playing by holding Centre:
+`"repeat-all"`, `"repeat-one"` or `"shuffle"`; absent means normal, and readers treat an unknown name
+as normal. Shuffle stores no order: each next track is picked at random when it is needed.
+
 ### `device.json`
 
 ```json

@@ -31,6 +31,9 @@ class PlayerView(ctx: Context) : View(ctx) {
 
     /** Drawn over [screen] when visible: the volume readout. */
     val volume = VolumeOverlay()
+    /** The play-mode menu (hold Centre on Now Playing), drawn over [screen] while open, under [volume]. */
+    val modeMenu = ModeMenu()
+    private val modeMenuOverlay = ModeMenuOverlay(modeMenu)
 
     var screen: Screen? = null
         set(value) {
@@ -58,6 +61,7 @@ class PlayerView(ctx: Context) : View(ctx) {
         canvas.clipRect(0f, 0f, Ui.W.toFloat(), Ui.H.toFloat())
         canvas.drawRect(0f, 0f, Ui.W.toFloat(), Ui.H.toFloat(), bgPaint)
         screen?.draw(canvas, Ui.W, Ui.H)
+        modeMenuOverlay.draw(canvas, Ui.W, Ui.H)
         volume.draw(canvas, Ui.W, Ui.H)
         canvas.restoreToCount(saved)
     }
