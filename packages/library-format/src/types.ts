@@ -94,6 +94,8 @@ export interface PlaybackState {
     trackIndex: number;
     positionMs: number;
     updatedAt: string;
+    /** Played through to the end (the position is then the top). Optional, written only when true (player 0.8.0+). */
+    finished?: true;
 }
 
 /*

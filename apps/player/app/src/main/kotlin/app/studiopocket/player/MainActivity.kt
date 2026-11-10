@@ -36,6 +36,7 @@ import app.studiopocket.player.library.LibraryLoader
 import app.studiopocket.player.library.LoadedLibrary
 import app.studiopocket.player.library.LoadedPlaylist
 import app.studiopocket.player.library.PlaylistGroup
+import app.studiopocket.player.library.CoverProgress
 import app.studiopocket.player.library.PlaylistProgress
 import app.studiopocket.player.library.RecentStore
 import app.studiopocket.player.library.StateStore
@@ -100,7 +101,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
     private var droppedRingSteps = 0
     private val seekHold = SeekHold()
     /** Saved cover-bar positions by playlist id (null: never played), for the current cover-flow visit. */
-    private val progressCache = HashMap<String, Float?>()
+    private val progressCache = HashMap<String, CoverProgress?>()
     /** The screen the last render drew, so arriving at the cover flow re-reads the saved positions. */
     private var lastRendered: PlayerNav.Screen? = null
     private val logListener: () -> Unit = { handler.post { if (nav.screen == PlayerNav.Screen.DIAGNOSTICS) renderDiagnostics() } }
@@ -445,16 +446,16 @@ class MainActivity : Activity(), PlaybackService.Listener {
      * state. Saved states are read once per visit to the cover flow ([progressCache] is cleared on the
      * way in and when the library reloads), not on every ring step.
      */
-    private fun progressFor(playlists: List<LoadedPlaylist>): Map<String, Float> {
+    private fun progressFor(playlists: List<LoadedPlaylist>): Map<String, CoverProgress> {
         if (lastRendered != PlayerNav.Screen.HOME) progressCache.clear()
         val s = service
         val live = s?.playlist?.takeIf { s.status == PlaybackService.Status.PLAYING || s.status == PlaybackService.Status.PAUSED }
-        val result = HashMap<String, Float>()
+        val result = HashMap<String, CoverProgress>()
         for (p in playlists) {
             val f = if (p.id == live?.id) {
-                PlaylistProgress.fraction(p.manifest.tracks, s.trackIndex, s.positionMs)
+                PlaylistProgress.fraction(p.manifest.tracks, s.trackIndex, s.positionMs)?.let { CoverProgress(it, finished = false) }
             } else if (storageAvailable) {
-                if (!progressCache.containsKey(p.id)) progressCache[p.id] = PlaylistProgress.fraction(p.manifest.tracks, stateStore.read(p.id))
+                if (!progressCache.containsKey(p.id)) progressCache[p.id] = PlaylistProgress.cover(p.manifest.tracks, stateStore.read(p.id))
                 progressCache[p.id]
             } else null
             if (f != null) result[p.id] = f

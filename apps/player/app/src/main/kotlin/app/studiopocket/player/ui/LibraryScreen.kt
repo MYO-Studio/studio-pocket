@@ -8,6 +8,7 @@ package app.studiopocket.player.ui
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.SystemClock
+import app.studiopocket.player.library.CoverProgress
 import app.studiopocket.player.library.LoadedLibrary
 import app.studiopocket.player.library.LoadedPlaylist
 
@@ -34,8 +35,8 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val playing: Boolean,
         val batteryPercent: Int,
         val charging: Boolean,
-        /** How far through each playlist (by id) its last played position is, 0..1; absent shows no bar. */
-        val progress: Map<String, Float> = emptyMap(),
+        /** Each playlist's cover bar (by id): how far through it is, or finished; absent shows no bar. */
+        val progress: Map<String, CoverProgress> = emptyMap(),
     )
 
     private val cards = CardRenderer()

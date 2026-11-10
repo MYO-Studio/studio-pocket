@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
+import app.studiopocket.player.library.CoverProgress
 import app.studiopocket.player.library.LoadedPlaylist
 
 /**
@@ -41,6 +42,11 @@ class CardRenderer {
     private val batteryLevel = Ui.fill(Ui.inkDim)
     private val progressTrack = Ui.fill(0xFF000000.toInt())
     private val progressFill = Ui.fill(Ui.accent)
+    private val tickDisc = Ui.fill(Ui.good)
+    private val tickStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = TICK_STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; color = Ui.ink
+    }
+    private val tickPath = Path()
     private val rect = RectF()
     private val bitmapRect = RectF()
     private val triangle = Path()
@@ -54,9 +60,10 @@ class CardRenderer {
 
     /**
      * [p]'s card with its left edge at [left]: cover (or placeholder), title band, selection ring, and
-     * a thin bar along the bottom of the cover, above the title band, when [progress] (0..1) is given.
+     * a thin bar along the bottom of the cover, above the title band, when [progress] is given: full
+     * and green with a tick in the corner once the playlist has been finished.
      */
-    fun card(c: Canvas, p: LoadedPlaylist, left: Float, alpha: Int, selected: Boolean, progress: Float? = null) {
+    fun card(c: Canvas, p: LoadedPlaylist, left: Float, alpha: Int, selected: Boolean, progress: CoverProgress? = null) {
         rect.set(left, LibraryScreen.CARD_TOP, left + LibraryScreen.CARD_W, LibraryScreen.CARD_BOTTOM)
         val bitmap: Bitmap? = Artwork.bitmap(p)
         if (bitmap != null) {
@@ -79,17 +86,35 @@ class CardRenderer {
         title.alpha = alpha
         val text = fit(title, p.id, p.title, LibraryScreen.CARD_W - 2 * TITLE_PAD)
         c.drawText(text, left + TITLE_PAD, rect.centerY() - (title.ascent() + title.descent()) / 2f, title)
-        if (progress != null) progressBar(c, left, progress, alpha)
+        if (progress != null) {
+            progressBar(c, left, progress.fraction, progress.finished, alpha)
+            if (progress.finished) finishedTick(c, left, alpha)
+        }
         if (selected) ringAround(c, left)
     }
 
     /** Full width of the card, sitting on the title band: a dark track and an accent fill. */
-    private fun progressBar(c: Canvas, left: Float, progress: Float, alpha: Int) {
+    private fun progressBar(c: Canvas, left: Float, progress: Float, finished: Boolean, alpha: Int) {
         val bottom = LibraryScreen.CARD_BOTTOM - BAND_H
         progressTrack.alpha = scale(PROGRESS_TRACK_ALPHA, alpha)
         c.drawRect(left, bottom - PROGRESS_H, left + LibraryScreen.CARD_W, bottom, progressTrack)
+        progressFill.color = if (finished) Ui.good else Ui.accent
         progressFill.alpha = alpha
         c.drawRect(left, bottom - PROGRESS_H, left + LibraryScreen.CARD_W * progress.coerceIn(0f, 1f), bottom, progressFill)
+    }
+
+    /** A green disc with a white tick, in the cover's top-right corner. */
+    private fun finishedTick(c: Canvas, left: Float, alpha: Int) {
+        val cx = left + LibraryScreen.CARD_W - TICK_INSET - TICK_R
+        val cy = LibraryScreen.CARD_TOP + TICK_INSET + TICK_R
+        tickDisc.alpha = alpha
+        c.drawCircle(cx, cy, TICK_R, tickDisc)
+        tickPath.rewind()
+        tickPath.moveTo(cx - TICK_R * 0.45f, cy + TICK_R * 0.02f)
+        tickPath.lineTo(cx - TICK_R * 0.1f, cy + TICK_R * 0.38f)
+        tickPath.lineTo(cx + TICK_R * 0.48f, cy - TICK_R * 0.32f)
+        tickStroke.alpha = alpha
+        c.drawPath(tickPath, tickStroke)
     }
 
     /** The selection ring sits just outside the card, its corners concentric with the card's. */
@@ -174,6 +199,9 @@ class CardRenderer {
         const val BAND_H = 40f
         const val PROGRESS_H = 5f
         const val PROGRESS_TRACK_ALPHA = 140
+        const val TICK_R = 13f
+        const val TICK_INSET = 8f
+        const val TICK_STROKE = 3f
         const val TITLE_PAD = 8f
         const val BAND_ALPHA = 179
         const val PLACEHOLDER_ALPHA = 51

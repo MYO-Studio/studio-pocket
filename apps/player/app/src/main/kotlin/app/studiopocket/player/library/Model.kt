@@ -62,7 +62,11 @@ data class LoadedLibrary(val playlists: List<LoadedPlaylist>, val hidden: List<P
     }
 }
 
-data class PlaybackState(val playlistId: String, val trackIndex: Int, val positionMs: Long, val updatedAt: String)
+/**
+ * A playlist's resume position. [finished]: it last played through to the end (the position is then
+ * the top, ready to start again); any later save while playing clears it.
+ */
+data class PlaybackState(val playlistId: String, val trackIndex: Int, val positionMs: Long, val updatedAt: String, val finished: Boolean = false)
 
 /** One group as groups.json defines it, after tolerant parsing ([Groups.parse]). */
 data class GroupDef(

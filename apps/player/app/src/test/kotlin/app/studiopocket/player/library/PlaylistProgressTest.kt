@@ -41,4 +41,13 @@ class PlaylistProgressTest {
     @Test fun clampsAnOutOfRangeState() {
         assertEquals(1f, PlaylistProgress.fraction(chapters, 9, 999_999)!!, 0.0001f)
     }
+
+    @Test fun aFinishedPlaylistShowsFinishedUntilItPlaysAgain() {
+        val finished = PlaybackState("p", 0, 0, "2026-11-10T00:00:00Z", finished = true)
+        assertEquals(CoverProgress.FINISHED, PlaylistProgress.cover(chapters, finished))
+        val startedAgain = PlaybackState("p", 0, 4_000, "2026-11-10T00:05:00Z")
+        assertEquals(false, PlaylistProgress.cover(chapters, startedAgain)!!.finished)
+        assertNull(PlaylistProgress.cover(chapters, null))
+        assertNull(PlaylistProgress.cover(chapters, PlaybackState("p", 0, 0, "2026-11-10T00:00:00Z")))
+    }
 }

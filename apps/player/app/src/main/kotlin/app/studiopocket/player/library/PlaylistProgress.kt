@@ -9,7 +9,8 @@ package app.studiopocket.player.library
  * How far through a playlist its last played position is, for the bar along the bottom of its
  * cover. It follows the saved resume position, not the furthest point reached: listening to
  * chapter 5 and then going back to chapter 3 shows chapter 3. By time when the manifest has every
- * track's duration, else by track. Pure, so it is unit-tested on the JVM.
+ * track's duration, else by track. A playlist played to its end shows finished until it is played
+ * again. Pure, so it is unit-tested on the JVM.
  */
 object PlaylistProgress {
     /** 0..1 for track [trackIndex] at [positionMs]; null at the very start (nothing to show) or with no tracks. */
@@ -31,4 +32,18 @@ object PlaylistProgress {
     /** The same for a saved state; null when the playlist has never been played. */
     fun fraction(tracks: List<Track>, state: PlaybackState?): Float? =
         state?.let { fraction(tracks, it.trackIndex, it.positionMs) }
+
+    /** What a cover shows for a saved state: finished (a full bar and a tick), a part bar, or nothing. */
+    fun cover(tracks: List<Track>, state: PlaybackState?): CoverProgress? = when {
+        state == null -> null
+        state.finished -> CoverProgress.FINISHED
+        else -> fraction(tracks, state)?.let { CoverProgress(it, finished = false) }
+    }
+}
+
+/** A cover's progress bar: [fraction] 0..1, or [finished]. */
+data class CoverProgress(val fraction: Float, val finished: Boolean) {
+    companion object {
+        val FINISHED = CoverProgress(1f, finished = true)
+    }
 }

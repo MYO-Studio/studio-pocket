@@ -299,8 +299,9 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
     /** Plays the next track, or stops: at the end of the playlist (Play starts from the top), or when the sleep timer is due (Play starts the next track). */
     override fun onCompletion(mp: MediaPlayer) {
         val p = playlist ?: return
-        val change = TrackChange.afterCompletion(trackIndex, p.manifest.tracks.size, sleepDue())
-        if (!change.play) { stopAt(p, change.index); return }
+        val size = p.manifest.tracks.size
+        val change = TrackChange.afterCompletion(trackIndex, size, sleepDue())
+        if (!change.play) { stopAt(p, change.index, finished = trackIndex + 1 >= size); return }
         trackIndex = change.index
         pendingSeekMs = 0L
         startTrack()
@@ -311,10 +312,11 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
      * player's end-of-track position, which would seek into the wrong track. STOPPED, not PAUSED:
      * there is no player left to resume. A due sleep timer is cleared, restoring full gain.
      */
-    private fun stopAt(p: LoadedPlaylist, index: Int) {
+    private fun stopAt(p: LoadedPlaylist, index: Int, finished: Boolean = false) {
         trackIndex = index
         pendingSeekMs = 0L
-        stateStore?.write(PlaybackState(p.id, index, 0L, StateStore.now()))
+        // [finished]: the playlist played to its end; the cover shows it finished until it plays again.
+        stateStore?.write(PlaybackState(p.id, index, 0L, StateStore.now(), finished))
         stopInternal(save = false)
         status = Status.STOPPED
         if (sleepDue()) fireSleepTimer() else notifyListeners()

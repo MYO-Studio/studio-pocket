@@ -140,7 +140,10 @@ export function validateDeviceMarker(value: unknown, path = 'device'): DeviceMar
 export function validatePlaybackState(value: unknown, path = 'state'): PlaybackState {
     const o = obj(value, path);
     header(o, STATE_FORMAT, path);
-    return { format: STATE_FORMAT, formatVersion: FORMAT_VERSION, playlistId: id(o, 'playlistId', path), trackIndex: int(o, 'trackIndex', path), positionMs: int(o, 'positionMs', path), updatedAt: str(o, 'updatedAt', path, 40) };
+    const state: PlaybackState = { format: STATE_FORMAT, formatVersion: FORMAT_VERSION, playlistId: id(o, 'playlistId', path), trackIndex: int(o, 'trackIndex', path), positionMs: int(o, 'positionMs', path), updatedAt: str(o, 'updatedAt', path, 40) };
+    // Optional, and only a true boolean counts, as on the player.
+    if (o.finished === true) state.finished = true;
+    return state;
 }
 
 const idList = (o: Obj, key: string, path: string, max?: number): string[] => {

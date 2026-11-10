@@ -74,6 +74,11 @@ must be `tracks/<name>`. `mimeType` is one of `audio/mpeg`, `audio/mp4`, `audio/
   "playlistId": "bedtime", "trackIndex": 1, "positionMs": 1500, "updatedAt": "…" }
 ```
 
+From 0.8.0 the player adds `"finished": true` when a playlist plays through to its end (the
+position is then track 0 at 0 ms, ready to start again), and drops it at the next save once it plays
+again. The cover shows a finished playlist with a full bar and a tick. Older players ignore the field;
+readers treat anything but `true` as not finished.
+
 ### `device.json`
 
 ```json

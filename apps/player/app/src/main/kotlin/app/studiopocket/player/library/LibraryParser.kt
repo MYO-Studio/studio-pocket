@@ -85,7 +85,9 @@ object LibraryParser {
         val path = "state"
         val o = obj(text, path)
         header(o, LibraryFormat.STATE, path)
-        return PlaybackState(id(o, "playlistId", path), int(o, "trackIndex", path, 0), long(o, "positionMs", path, 0), str(o, "updatedAt", path, 40))
+        // "finished" is optional (absent before 0.8.0); only a true boolean counts.
+        val finished = o.opt("finished") == true
+        return PlaybackState(id(o, "playlistId", path), int(o, "trackIndex", path, 0), long(o, "positionMs", path, 0), str(o, "updatedAt", path, 40), finished)
     }
 
     fun serializePlaybackState(state: PlaybackState): String = JSONObject().apply {
@@ -95,6 +97,7 @@ object LibraryParser {
         put("trackIndex", state.trackIndex)
         put("positionMs", state.positionMs)
         put("updatedAt", state.updatedAt)
+        if (state.finished) put("finished", true)
     }.toString(2) + "\n"
 
     fun serializeDeviceMarker(deviceId: String, createdAt: String, playerVersion: String): String = JSONObject().apply {
