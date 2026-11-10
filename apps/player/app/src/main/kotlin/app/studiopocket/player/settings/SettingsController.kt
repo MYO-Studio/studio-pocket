@@ -152,6 +152,7 @@ class SettingsController(
         SettingsRow("main.screen", "Screen"),
         SettingsRow("main.about", "About"),
         SettingsRow("main.stock", "Bluetooth (Android screen)"),
+        SettingsRow("main.datetime", "Date & time (Android screen)"),
     )
 
     private fun onMain(action: SettingsNav.Action) {
@@ -163,15 +164,22 @@ class SettingsController(
             "main.screen" -> enter(SettingsPage.SCREEN)
             "main.about" -> enter(SettingsPage.ABOUT)
             "main.stock" -> openStockBluetooth()
+            "main.datetime" -> openStock(Settings.ACTION_DATE_SETTINGS, "date & time")
         }
     }
 
     /** Only the Bluetooth screen, never the whole Settings app. */
-    private fun openStockBluetooth() {
+    private fun openStockBluetooth() = openStock(Settings.ACTION_BLUETOOTH_SETTINGS, "Bluetooth")
+
+    /**
+     * One stock Android screen (the Y2's 3.2.0 Settings app handles both actions used here), never
+     * the whole Settings app. Back on it returns to our settings, which redraw the clock on resume.
+     */
+    private fun openStock(action: String, what: String) {
         try {
-            activity.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            activity.startActivity(Intent(action))
         } catch (e: ActivityNotFoundException) {
-            Log.w(TAG, "no Bluetooth settings screen: $e")
+            Log.w(TAG, "no $what settings screen: $e")
         }
     }
 
