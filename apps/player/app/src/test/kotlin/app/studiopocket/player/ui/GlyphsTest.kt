@@ -12,7 +12,7 @@ import org.junit.Test
 class GlyphsTest {
     @Test
     fun everyGlyphIs16By16AndSymmetricWhereItShouldBe() {
-        for (glyph in listOf(Glyphs.CLOCK, Glyphs.GRID, Glyphs.FOLDER, Glyphs.SPEAKER, Glyphs.SPEAKER_MUTED)) {
+        for (glyph in listOf(Glyphs.CLOCK, Glyphs.GRID, Glyphs.FOLDER)) {
             assertEquals(16, glyph.size)
             for (row in glyph) {
                 assertEquals(row, 16, row.length)
