@@ -6,6 +6,7 @@
 package app.studiopocket.player.settings
 
 import android.app.Activity
+import android.app.AlarmManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -14,9 +15,12 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.util.Log
 import app.studiopocket.player.BuildConfigCompat
 import java.io.IOException
+import java.util.Calendar
+import java.util.TimeZone
 import app.studiopocket.player.library.LibraryFormat
 import app.studiopocket.player.playback.PlaybackService
 import app.studiopocket.player.playback.SleepTimer
@@ -78,6 +82,7 @@ class SettingsController(
                 SettingsPage.VOLUME -> onVolume(action)
                 SettingsPage.SLEEP -> onSleep(action)
                 SettingsPage.SCREEN -> onScreen(action)
+                SettingsPage.DATETIME -> onDateTime(action)
                 SettingsPage.ABOUT -> onAbout(action)
                 SettingsPage.LICENCES -> onLicences(action)
                 SettingsPage.LICENCE_TEXT -> Unit
@@ -93,6 +98,7 @@ class SettingsController(
         SettingsPage.VOLUME -> "Sound"
         SettingsPage.SLEEP -> "Sleep timer"
         SettingsPage.SCREEN -> "Screen"
+        SettingsPage.DATETIME -> "Date & time"
         SettingsPage.ABOUT -> "About"
         SettingsPage.LICENCES -> "Licences"
         SettingsPage.LICENCE_TEXT -> doc?.label ?: "Licence"
@@ -105,6 +111,7 @@ class SettingsController(
         SettingsPage.VOLUME -> volumeRows()
         SettingsPage.SLEEP -> sleepRows()
         SettingsPage.SCREEN -> screenRows()
+        SettingsPage.DATETIME -> dateTimeRows()
         SettingsPage.ABOUT -> aboutRows()
         SettingsPage.LICENCES -> LicenceDocs.ALL.map { SettingsRow("licence:${it.id}", it.label) }
         SettingsPage.LICENCE_TEXT -> emptyList()
@@ -113,6 +120,7 @@ class SettingsController(
     fun footnote(): String? = when (page) {
         SettingsPage.BLUETOOTH, SettingsPage.BT_DEVICE -> bluetooth.state.message
         SettingsPage.VOLUME -> "Headphone buttons may still go louder than the limit"
+        SettingsPage.DATETIME -> "Setting the time turns automatic time off"
         SettingsPage.SLEEP -> service?.sleepMinutesLeft?.let { "Stops in $it min" }
         SettingsPage.LICENCES -> "Studio Pocket ${BuildConfigCompat.versionName(activity)} is GPL-3.0-only"
         SettingsPage.LICENCE_TEXT -> TextLayout.position(textTop, textLines.size, textVisible)
@@ -150,9 +158,9 @@ class SettingsController(
         SettingsRow("main.volume", "Sound"),
         SettingsRow("main.sleep", "Sleep timer"),
         SettingsRow("main.screen", "Screen"),
+        SettingsRow("main.datetime", "Date & time"),
         SettingsRow("main.about", "About"),
         SettingsRow("main.stock", "Bluetooth (Android screen)"),
-        SettingsRow("main.datetime", "Date & time (Android screen)"),
     )
 
     private fun onMain(action: SettingsNav.Action) {
@@ -164,17 +172,14 @@ class SettingsController(
             "main.screen" -> enter(SettingsPage.SCREEN)
             "main.about" -> enter(SettingsPage.ABOUT)
             "main.stock" -> openStockBluetooth()
-            "main.datetime" -> openStock(Settings.ACTION_DATE_SETTINGS, "date & time")
+            "main.datetime" -> enter(SettingsPage.DATETIME)
         }
     }
 
     /** Only the Bluetooth screen, never the whole Settings app. */
     private fun openStockBluetooth() = openStock(Settings.ACTION_BLUETOOTH_SETTINGS, "Bluetooth")
 
-    /**
-     * One stock Android screen (the Y2's 3.2.0 Settings app handles both actions used here), never
-     * the whole Settings app. Back on it returns to our settings, which redraw the clock on resume.
-     */
+    /** One stock Android screen, never the whole Settings app. Back on it returns to our settings. */
     private fun openStock(action: String, what: String) {
         try {
             activity.startActivity(Intent(action))
@@ -321,6 +326,69 @@ class SettingsController(
             Settings.System.putInt(activity.contentResolver, name, value)
         } catch (e: SecurityException) {
             Log.w(TAG, "cannot write $name: $e")
+        }
+    }
+
+    // --- date & time ---
+
+    private fun dateTimeRows(): List<SettingsRow> {
+        val now = Calendar.getInstance()
+        val is24 = DateFormat.is24HourFormat(activity)
+        val zones = DateTimeRows.zones(TimeZone.getDefault().id)
+        return listOf(
+            SettingsRow("dt.hour", "Hour", RowValue(DateTimeRows.index(DateTimeRows.Field.HOUR, now), DateTimeRows.hours(is24))),
+            SettingsRow("dt.minute", "Minute", RowValue(DateTimeRows.index(DateTimeRows.Field.MINUTE, now), DateTimeRows.minutes())),
+            SettingsRow("dt.day", "Day", RowValue(DateTimeRows.index(DateTimeRows.Field.DAY, now), DateTimeRows.days(now))),
+            SettingsRow("dt.month", "Month", RowValue(DateTimeRows.index(DateTimeRows.Field.MONTH, now), DateTimeRows.MONTHS)),
+            SettingsRow("dt.year", "Year", RowValue(DateTimeRows.index(DateTimeRows.Field.YEAR, now), DateTimeRows.years())),
+            SettingsRow("dt.24h", "24-hour clock", RowValue(if (is24) 1 else 0, DateTimeRows.ON_OFF)),
+            SettingsRow("dt.zone", "Time zone", RowValue(DateTimeRows.zoneIndex(zones, TimeZone.getDefault()), zones.map { it.label })),
+        )
+    }
+
+    /** Values are written when committed (Centre or Back), not while the ring previews them. */
+    private fun onDateTime(action: SettingsNav.Action) {
+        if (action !is SettingsNav.Action.Commit) return
+        val field = when (action.rowId) {
+            "dt.hour" -> DateTimeRows.Field.HOUR
+            "dt.minute" -> DateTimeRows.Field.MINUTE
+            "dt.day" -> DateTimeRows.Field.DAY
+            "dt.month" -> DateTimeRows.Field.MONTH
+            "dt.year" -> DateTimeRows.Field.YEAR
+            else -> null
+        }
+        when {
+            field != null -> {
+                val now = Calendar.getInstance()
+                if (DateTimeRows.index(field, now) != action.index) setClock(DateTimeRows.withChoice(now, field, action.index).timeInMillis)
+            }
+            action.rowId == "dt.24h" -> writeSystem(Settings.System.TIME_12_24, if (action.index == 1) 24 else 12)
+            action.rowId == "dt.zone" -> {
+                val zone = DateTimeRows.zones(TimeZone.getDefault().id).getOrNull(action.index) ?: return
+                if (zone.id != TimeZone.getDefault().id) setZone(zone.id)
+            }
+        }
+    }
+
+    /**
+     * Turns automatic time off (it would put the clock back), then sets it. Both need the system
+     * permissions a /system/priv-app APK holds (WRITE_SECURE_SETTINGS, SET_TIME); a refusal is logged.
+     */
+    private fun setClock(millis: Long) {
+        try {
+            Settings.Global.putInt(activity.contentResolver, Settings.Global.AUTO_TIME, 0)
+            (activity.getSystemService(Context.ALARM_SERVICE) as AlarmManager).setTime(millis)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "cannot set the clock: $e")
+        }
+    }
+
+    private fun setZone(id: String) {
+        try {
+            Settings.Global.putInt(activity.contentResolver, Settings.Global.AUTO_TIME_ZONE, 0)
+            (activity.getSystemService(Context.ALARM_SERVICE) as AlarmManager).setTimeZone(id)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "cannot set the time zone: $e")
         }
     }
 

@@ -12,7 +12,7 @@ import java.util.Locale
  * LICENCES lists the licence texts under About; LICENCE_TEXT shows one of them.
  */
 enum class SettingsPage {
-    MAIN, BLUETOOTH, BT_DEVICE, VOLUME, SLEEP, SCREEN, ABOUT, LICENCES, LICENCE_TEXT;
+    MAIN, BLUETOOTH, BT_DEVICE, VOLUME, SLEEP, SCREEN, DATETIME, ABOUT, LICENCES, LICENCE_TEXT;
 
     val parent: SettingsPage?
         get() = when (this) {

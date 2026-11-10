@@ -140,8 +140,9 @@ class LibraryScreen : Screen(), Artwork.Listener {
     }
 
     companion object {
-        const val CARD_TOP = 24f
-        const val CARD_BOTTOM = Ui.H - CARD_TOP
+        /** Below the top strip (clock, group name, now-playing pill, battery), ring included. */
+        const val CARD_TOP = 44f
+        const val CARD_BOTTOM = Ui.H - 24f
         const val CARD_H = CARD_BOTTOM - CARD_TOP
         const val CARD_RATIO = 0.63f
         val CARD_W: Float = Math.round(CARD_H * CARD_RATIO).toFloat()
