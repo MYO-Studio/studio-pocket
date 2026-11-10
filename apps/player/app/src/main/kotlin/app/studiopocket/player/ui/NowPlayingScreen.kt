@@ -38,6 +38,8 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         val charging: Boolean = false,
         /** The track the ring has browsed to, when it is not the playing one. */
         val browsing: Int? = null,
+        /** +1 or -1 while Next/Previous is held to scrub ([positionMs] is then the preview), else 0. */
+        val scrub: Int = 0,
     ) {
         /** The track on screen: the browsed one, else the playing one. */
         val shownTrack: Int get() = browsing ?: trackIndex
@@ -56,6 +58,7 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
     private val rect = RectF()
     private val chrome = CardRenderer()
     private val playPath = Path()
+    private val scrubPath = Path()
 
     private var state = State(null, 0, "", 0L, 0L, Status.STOPPED, null)
     private var background = Ui.bg
@@ -123,7 +126,12 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         val total = s.playlist?.manifest?.tracks?.size ?: 0
         val duration = if (s.durationMs > 0) s.durationMs else (s.playlist?.manifest?.tracks?.getOrNull(s.trackIndex)?.durationMs ?: 0L)
         if (!browsing && (s.status == Status.PLAYING || s.status == Status.PAUSED)) {
-            c.drawText(clock(s.positionMs), BAR_MARGIN, TIME_BASELINE, timePaint)
+            // While scrubbing the elapsed time is bright, with two arrows after it pointing the way it moves.
+            timePaint.color = if (s.scrub != 0) Ui.ink else Ui.inkDim
+            val elapsed = clock(s.positionMs)
+            c.drawText(elapsed, BAR_MARGIN, TIME_BASELINE, timePaint)
+            if (s.scrub != 0) scrubGlyph(c, BAR_MARGIN + timePaint.measureText(elapsed) + SCRUB_GAP, s.scrub)
+            timePaint.color = Ui.inkDim
             val end = clock(duration)
             c.drawText(end, w - BAR_MARGIN - timePaint.measureText(end), TIME_BASELINE, timePaint)
         }
@@ -155,6 +163,22 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         if (s.batteryPercent >= 0) chrome.battery(c, w, s.batteryPercent, s.charging)
 
         if (crossStart != 0L || scrolling) invalidateDelayed(FRAME_MS)
+    }
+
+    /** Two small triangles from [left], pointing right for [direction] +1 and left for -1. */
+    private fun scrubGlyph(c: Canvas, left: Float, direction: Int) {
+        val mid = TIME_BASELINE - TIME_SIZE * 0.35f
+        val half = SCRUB_H / 2f
+        for (k in 0..1) {
+            val x0 = left + k * SCRUB_W
+            val (tail, tip) = if (direction > 0) x0 to x0 + SCRUB_W else x0 + SCRUB_W to x0
+            scrubPath.rewind()
+            scrubPath.moveTo(tail, mid - half)
+            scrubPath.lineTo(tip, mid)
+            scrubPath.lineTo(tail, mid + half)
+            scrubPath.close()
+            c.drawPath(scrubPath, ink)
+        }
     }
 
     private fun icon(c: Canvas, b: Bitmap, alpha: Int) {
@@ -218,6 +242,9 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         const val TIME_SIZE = 20f
         const val TIME_BASELINE = 276f
         const val BAR_MARGIN = 28f
+        const val SCRUB_GAP = 8f
+        const val SCRUB_W = 9f
+        const val SCRUB_H = 12f
         const val BAR_Y = 288f
         const val BAR_H = 8f
         const val LINE_BASELINE = 334f

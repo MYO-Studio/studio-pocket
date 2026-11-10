@@ -53,6 +53,7 @@ import app.studiopocket.player.ui.PixelIcon
 import app.studiopocket.player.ui.PlayerNav
 import app.studiopocket.player.ui.PlayerView
 import app.studiopocket.player.ui.RingLag
+import app.studiopocket.player.ui.SeekHold
 import app.studiopocket.player.ui.SettingsScreen
 import app.studiopocket.player.ui.TextScreen
 import app.studiopocket.player.ui.Ui
@@ -96,6 +97,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
     private var swallowBack = false
     /** Late ring steps dropped since the last key that was acted on, logged once with that key. */
     private var droppedRingSteps = 0
+    private val seekHold = SeekHold()
     private val logListener: () -> Unit = { handler.post { if (nav.screen == PlayerNav.Screen.DIAGNOSTICS) renderDiagnostics() } }
 
     private val root: File get() = File(Environment.getExternalStorageDirectory(), LibraryFormat.ROOT_DIR)
@@ -204,6 +206,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
         handler.removeCallbacks(browseTimeout)
         handler.removeCallbacks(hideVolume)
         view.volume.hide()
+        seekHold.cancel()
         nav.endBrowse()
         super.onPause()
     }
@@ -284,7 +287,38 @@ class MainActivity : Activity(), PlaybackService.Listener {
             render()
             return true
         }
+        // Next/Previous on the player: skip on release, scrub while held ([SeekHold]).
+        val seekDirection = SeekHold.direction(name)
+        if (seekDirection != 0 && (seekHold.active || nav.screen == PlayerNav.Screen.PLAYER)) {
+            onSeekKey(event, name, seekDirection)
+            return true
+        }
         if (!down || event.repeatCount > 0) return true
+        onNavKey(name)
+        return true
+    }
+
+    /** One Next/Previous event on the player screen. */
+    private fun onSeekKey(event: KeyEvent, name: String, direction: Int) {
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
+                // Only a playing or paused track can scrub; otherwise a hold still skips on release.
+                val s = service?.takeIf { it.status == PlaybackService.Status.PLAYING || it.status == PlaybackService.Status.PAUSED }
+                seekHold.press(direction, event.downTime, s?.positionMs ?: 0L, s?.durationMs ?: 0L)
+            } else if (seekHold.active && seekHold.hold(event.eventTime)) {
+                if (nav.endBrowse()) handler.removeCallbacks(browseTimeout)
+                render()
+            }
+            KeyEvent.ACTION_UP -> when (val r = seekHold.release(event.isCanceled)) {
+                is SeekHold.Release.Skip -> onNavKey(name)
+                is SeekHold.Release.Seek -> { service?.seekTo(r.positionMs); render() }
+                SeekHold.Release.None -> render()
+            }
+        }
+    }
+
+    /** A key press (down, not a repeat) for the navigation model and what it asks for. */
+    private fun onNavKey(name: String) {
         val screen = nav.screen
         val s = service
         val action = nav.onKey(name, hasPlayback = currentPlaylist != null, playingTrack = s?.trackIndex ?: 0, trackCount = s?.playlist?.manifest?.tracks?.size ?: 0)
@@ -311,7 +345,6 @@ class MainActivity : Activity(), PlaybackService.Listener {
             PlayerNav.Action.Redraw, PlayerNav.Action.None -> Unit
         }
         render()
-        return true
     }
 
     /** One Volume key press: a step on the music stream with no system UI or sound, then our readout. */
@@ -408,7 +441,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             playlist = s?.playlist,
             trackIndex = s?.trackIndex ?: 0,
             title = s?.currentTrackTitle ?: "",
-            positionMs = s?.positionMs ?: 0L,
+            positionMs = if (seekHold.scrubbing) seekHold.previewMs else s?.positionMs ?: 0L,
             durationMs = s?.durationMs ?: 0L,
             status = status,
             error = s?.lastError,
@@ -416,6 +449,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             batteryPercent = batteryPercent,
             charging = charging,
             browsing = browsing,
+            scrub = if (seekHold.scrubbing) seekHold.direction else 0,
         ))
         view.screen = nowPlaying
         handler.removeCallbacks(progressTick)

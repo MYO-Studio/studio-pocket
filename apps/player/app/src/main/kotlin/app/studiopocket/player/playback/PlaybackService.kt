@@ -109,7 +109,7 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
     fun addListener(listener: Listener) { listeners.add(listener) }
     fun removeListener(listener: Listener) { listeners.remove(listener) }
 
-    val positionMs: Long get() = try { player?.takeIf { status == Status.PLAYING || status == Status.PAUSED }?.currentPosition?.toLong() ?: pendingSeekMs } catch (e: IllegalStateException) { 0L }
+    val positionMs: Long get() = if (seekingToMs >= 0L) seekingToMs else try { player?.takeIf { status == Status.PLAYING || status == Status.PAUSED }?.currentPosition?.toLong() ?: pendingSeekMs } catch (e: IllegalStateException) { 0L }
     val durationMs: Long get() = try { player?.takeIf { status == Status.PLAYING || status == Status.PAUSED }?.duration?.toLong() ?: (playlist?.manifest?.tracks?.getOrNull(trackIndex)?.durationMs ?: 0L) } catch (e: IllegalStateException) { 0L }
     val currentTrackTitle: String get() = playlist?.manifest?.tracks?.getOrNull(trackIndex)?.title ?: ""
 
@@ -200,6 +200,25 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         applyChange(p, TrackChange.skip(trackIndex, delta, p.manifest.tracks.size, status == Status.PLAYING, sleepDue()) ?: return)
     }
 
+    /**
+     * The position a seek asked for until the player says it got there, so the progress bar does not
+     * jump back to the old position for a moment. -1 when no seek is under way.
+     */
+    private var seekingToMs = -1L
+
+    /** Moves the playing or paused track to [ms] (clamped to the track), as a scrub on Next/Previous asks. */
+    fun seekTo(ms: Long) {
+        val p = playlist ?: return
+        val mp = player ?: return
+        if (status != Status.PLAYING && status != Status.PAUSED) return
+        val target = try { ms.coerceIn(0L, maxOf(0L, mp.duration.toLong() - 1L)) } catch (e: IllegalStateException) { return }
+        seekingToMs = target
+        mp.setOnSeekCompleteListener { if (player === it) { seekingToMs = -1L; notifyListeners() } }
+        try { mp.seekTo(target.toInt()) } catch (e: IllegalStateException) { seekingToMs = -1L; return }
+        stateStore?.write(PlaybackState(p.id, trackIndex, target, StateStore.now()))
+        notifyListeners()
+    }
+
     /** Plays track [index] of the loaded playlist from its start (the ring browses, the centre button picks). */
     fun playTrack(index: Int) {
         val p = playlist ?: return
@@ -227,6 +246,7 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         status = Status.PREPARING
         notifyListeners()
         val mp = MediaPlayer()
+        seekingToMs = -1L
         player = mp
         mp.setAudioStreamType(AudioManager.STREAM_MUSIC)
         mp.setOnCompletionListener(this)
