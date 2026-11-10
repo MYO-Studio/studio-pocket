@@ -35,6 +35,8 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val playing: Boolean,
         val batteryPercent: Int,
         val charging: Boolean,
+        /** The clock top left ("9:36"); null hides it. */
+        val clock: String? = null,
         /** Each playlist's cover bar (by id): how far through it is, or finished; absent shows no bar. */
         val progress: Map<String, CoverProgress> = emptyMap(),
     )
@@ -79,6 +81,7 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val s = state
         if (s.batteryPercent >= 0) cards.battery(c, w, s.batteryPercent, s.charging)
         if (!s.storageAvailable) {
+            cards.clock(c, s.clock)
             Ui.centred(c, w, "Connected to computer", emptyTitle, h / 2f)
             Ui.centred(c, w, "Unplug the cable to play", emptySub, h / 2f + EMPTY_GAP)
             return
@@ -99,7 +102,8 @@ class LibraryScreen : Screen(), Artwork.Listener {
         else if (LowBattery.warn(s.batteryPercent, s.charging)) Ui.centred(c, w, LowBattery.TEXT, footer, h - PROBLEM_BASELINE)
         else if (hidden > 0) Ui.centred(c, w, if (hidden == 1) "1 playlist could not be read" else "$hidden playlists could not be read", footer, h - PROBLEM_BASELINE)
         val pillLeft = s.playingTitle?.let { cards.pill(c, w, it, s.playing) }
-        s.groupLabel?.let { cards.groupLabel(c, it, (pillLeft ?: GROUP_LABEL_MAX + Ui.MARGIN) - Ui.MARGIN - GROUP_LABEL_GAP) }
+        val labelX = cards.clock(c, s.clock)
+        s.groupLabel?.let { cards.groupLabel(c, it, (pillLeft ?: GROUP_LABEL_MAX + Ui.MARGIN) - labelX - GROUP_LABEL_GAP, labelX) }
         if (animStart != 0L) invalidateDelayed(FRAME_MS)
     }
 

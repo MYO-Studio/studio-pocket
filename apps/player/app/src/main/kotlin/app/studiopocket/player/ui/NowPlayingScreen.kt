@@ -17,7 +17,7 @@ import app.studiopocket.player.library.LoadedPlaylist
  * What a child watches while a playlist plays (ported from the author's earlier Y1 player): the track's 16x16
  * pixel icon blown up 8x with no filtering, the track title large with the playlist name dim beneath
  * it, elapsed and total time over a rounded progress bar, and "Track n of m" at the foot, on a
- * background tinted towards the playlist artwork. Battery top right, sleep timer top left. Track
+ * background tinted towards the playlist artwork. Battery top right; clock and sleep timer top left. Track
  * changes crossfade the icon; a long title scrolls while playing and parks when paused. While the
  * ring browses the playlist ([State.browsing]) the screen shows that track instead, dimmed under a
  * play triangle and without the times or progress bar, until centre plays it or the browse ends.
@@ -40,6 +40,8 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         val browsing: Int? = null,
         /** +1 or -1 while Next/Previous is held to scrub ([positionMs] is then the preview), else 0. */
         val scrub: Int = 0,
+        /** The clock top left ("9:36"); null hides it. */
+        val clock: String? = null,
     ) {
         /** The track on screen: the browsed one, else the playing one. */
         val shownTrack: Int get() = browsing ?: trackIndex
@@ -159,7 +161,8 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         if (LowBattery.warn(s.batteryPercent, s.charging)) Ui.centred(c, w, LowBattery.TEXT, warnPaint, LINE_BASELINE)
         else Ui.centred(c, w, Ui.ellipsize(linePaint, line, maxText), linePaint, LINE_BASELINE)
 
-        s.sleepMinutesLeft?.let { c.drawText("Sleep ${it}m", Ui.MARGIN, CardRenderer.BATT_BASELINE, linePaint) }
+        val topX = chrome.clock(c, s.clock)
+        s.sleepMinutesLeft?.let { c.drawText("Sleep ${it}m", topX, CardRenderer.BATT_BASELINE, linePaint) }
         if (s.batteryPercent >= 0) chrome.battery(c, w, s.batteryPercent, s.charging)
 
         if (crossStart != 0L || scrolling) invalidateDelayed(FRAME_MS)

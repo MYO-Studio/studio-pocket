@@ -20,6 +20,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.SystemClock
+import android.text.format.DateFormat
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.KeyEvent
@@ -48,6 +49,7 @@ import app.studiopocket.player.settings.VolumeCap
 import app.studiopocket.player.ui.Artwork
 import app.studiopocket.player.ui.CoverThumbs
 import app.studiopocket.player.ui.BackDouble
+import app.studiopocket.player.ui.ClockText
 import app.studiopocket.player.ui.BackHold
 import app.studiopocket.player.ui.GroupsScreen
 import app.studiopocket.player.ui.LibraryScreen
@@ -62,6 +64,7 @@ import app.studiopocket.player.ui.TextScreen
 import app.studiopocket.player.ui.Ui
 import app.studiopocket.player.ui.VolumeOverlay
 import java.io.File
+import java.util.Calendar
 
 /**
  * The launcher. A Canvas-drawn [PlayerView] shows the groups, the card carousel and Now Playing
@@ -148,6 +151,19 @@ class MainActivity : Activity(), PlaybackService.Listener {
         }
     }
 
+    /** The clock on the top line, in the player's 12- or 24-hour setting. */
+    private fun clockText(): String {
+        val now = Calendar.getInstance()
+        return ClockText.format(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), DateFormat.is24HourFormat(this))
+    }
+
+    /** Redraws the clock each minute, and when the time or time zone is changed. Registered while in front. */
+    private val clockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (nav.screen != PlayerNav.Screen.SETTINGS && nav.screen != PlayerNav.Screen.DIAGNOSTICS) render()
+        }
+    }
+
     /** Waking the screen shows home, not settings: settings closes when the screen goes off. */
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -198,6 +214,9 @@ class MainActivity : Activity(), PlaybackService.Listener {
             addDataScheme("file")
         })
         registerReceiver(storageReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        registerReceiver(clockReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK); addAction(Intent.ACTION_TIME_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        })
         storageAvailable = Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED
         // Back from the stock Bluetooth screen: USB may have taken storage while our receiver was off,
         // and the idle timer was held while that screen was in front.
@@ -208,6 +227,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
 
     override fun onPause() {
         unregisterReceiver(storageReceiver)
+        unregisterReceiver(clockReceiver)
         handler.removeCallbacks(autoClose)   // never closes settings behind the stock Bluetooth screen
         EventLog.shared.removeListener(logListener)
         handler.removeCallbacks(progressTick)
@@ -441,6 +461,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             playing = s?.status == PlaybackService.Status.PLAYING,
             batteryPercent = batteryPercent,
             charging = charging,
+            clock = clockText(),
         ))
         groupsScreen.select(nav.group)
         view.screen = groupsScreen
@@ -460,6 +481,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             playing = s?.status == PlaybackService.Status.PLAYING,
             batteryPercent = batteryPercent,
             charging = charging,
+            clock = clockText(),
             progress = progressFor(group.playlists),
         ))
         libraryScreen.select(nav.selected)
@@ -510,6 +532,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             charging = charging,
             browsing = browsing,
             scrub = if (seekHold.scrubbing) seekHold.direction else 0,
+            clock = clockText(),
         ))
         view.screen = nowPlaying
         handler.removeCallbacks(progressTick)

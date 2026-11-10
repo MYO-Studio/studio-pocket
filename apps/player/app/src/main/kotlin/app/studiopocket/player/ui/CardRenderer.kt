@@ -154,10 +154,20 @@ class CardRenderer {
         return left
     }
 
-    /** Where the child is: the open group's name, small and dim at the top left, at most [maxW] wide. */
-    fun groupLabel(c: Canvas, label: String, maxW: Float) {
+    /** Where the child is: the open group's name, small and dim at the top left from [x], at most [maxW] wide. */
+    fun groupLabel(c: Canvas, label: String, maxW: Float, x: Float = Ui.MARGIN) {
         val text = fit(groupText, GROUP_KEY, label, maxW)
-        c.drawText(text, Ui.MARGIN, BATT_BASELINE, groupText)
+        c.drawText(text, x, BATT_BASELINE, groupText)
+    }
+
+    /**
+     * The clock top left ("9:36"), on the battery's baseline in the same small dim text. Returns where
+     * the next item on the top line starts: after the clock and a gap, or the margin when [time] is null.
+     */
+    fun clock(c: Canvas, time: String?): Float {
+        if (time == null) return Ui.MARGIN
+        c.drawText(time, Ui.MARGIN, BATT_BASELINE, batteryText.also { it.color = Ui.inkDim })
+        return Ui.MARGIN + batteryText.measureText(time) + CLOCK_GAP
     }
 
     /** Battery readout top-right: "84%" and a cell filled green, amber or red by level, accent while charging. Only when a level is known. */
@@ -227,5 +237,7 @@ class CardRenderer {
         const val BATT_CAP_H = 7f
         const val BATT_GAP = 7f
         const val BATT_BASELINE = 20f
+        /** Between the clock and whatever follows it on the top line. */
+        const val CLOCK_GAP = 12f
     }
 }

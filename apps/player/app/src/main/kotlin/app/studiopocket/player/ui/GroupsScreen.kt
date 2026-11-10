@@ -28,6 +28,8 @@ class GroupsScreen : Screen(), PixelIcon.Listener, CoverThumbs.Listener {
         val playing: Boolean,
         val batteryPercent: Int,
         val charging: Boolean,
+        /** The clock top left ("9:36"); null hides it. */
+        val clock: String? = null,
     )
 
     private val tiles = GroupRenderer()
@@ -87,6 +89,7 @@ class GroupsScreen : Screen(), PixelIcon.Listener, CoverThumbs.Listener {
         c.drawColor(Ui.bg)
         val s = state
         if (s.batteryPercent >= 0) cards.battery(c, w, s.batteryPercent, s.charging)
+        cards.clock(c, s.clock)
         if (!s.storageAvailable) {
             Ui.centred(c, w, "Connected to computer", emptyTitle, h / 2f)
             Ui.centred(c, w, "Unplug the cable to play", emptySub, h / 2f + LibraryScreen.EMPTY_GAP)
