@@ -29,6 +29,9 @@ class PlayerView(ctx: Context) : View(ctx) {
     private val bgPaint = Ui.fill(Ui.bg)
     private val letterbox = Ui.fill(0xFF000000.toInt())
 
+    /** Drawn over [screen] when visible: the volume readout. */
+    val volume = VolumeOverlay()
+
     var screen: Screen? = null
         set(value) {
             if (field === value) return
@@ -55,6 +58,7 @@ class PlayerView(ctx: Context) : View(ctx) {
         canvas.clipRect(0f, 0f, Ui.W.toFloat(), Ui.H.toFloat())
         canvas.drawRect(0f, 0f, Ui.W.toFloat(), Ui.H.toFloat(), bgPaint)
         screen?.draw(canvas, Ui.W, Ui.H)
+        volume.draw(canvas, Ui.W, Ui.H)
         canvas.restoreToCount(saved)
     }
 }

@@ -25,4 +25,15 @@ class VolumeCapTest {
         assertEquals(VolumeCap.NONE, VolumeCap.fromIndex(14, 15)); assertEquals(14, VolumeCap.toIndex(VolumeCap.NONE, 15))
         assertEquals(8, VolumeCap.fromIndex(7, 15)); assertEquals(7, VolumeCap.toIndex(8, 15))
     }
+
+    @Test fun stepsOneAtATimeWithinZeroMaxAndTheCap() {
+        assertEquals(6, VolumeCap.step(5, 15, VolumeCap.NONE, up = true))
+        assertEquals(4, VolumeCap.step(5, 15, VolumeCap.NONE, up = false))
+        assertEquals(15, VolumeCap.step(15, 15, VolumeCap.NONE, up = true))
+        assertEquals(0, VolumeCap.step(0, 15, VolumeCap.NONE, up = false))
+        assertEquals(8, VolumeCap.step(7, 15, 8, up = true))
+        assertEquals(8, VolumeCap.step(8, 15, 8, up = true))
+        assertEquals(10, VolumeCap.step(10, 15, 8, up = true))
+        assertEquals(9, VolumeCap.step(10, 15, 8, up = false))
+    }
 }

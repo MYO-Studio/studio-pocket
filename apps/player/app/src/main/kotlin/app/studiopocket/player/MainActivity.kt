@@ -54,6 +54,7 @@ import app.studiopocket.player.ui.PlayerView
 import app.studiopocket.player.ui.SettingsScreen
 import app.studiopocket.player.ui.TextScreen
 import app.studiopocket.player.ui.Ui
+import app.studiopocket.player.ui.VolumeOverlay
 import java.io.File
 
 /**
@@ -197,6 +198,8 @@ class MainActivity : Activity(), PlaybackService.Listener {
         EventLog.shared.removeListener(logListener)
         handler.removeCallbacks(progressTick)
         handler.removeCallbacks(browseTimeout)
+        handler.removeCallbacks(hideVolume)
+        view.volume.hide()
         nav.endBrowse()
         super.onPause()
     }
@@ -241,13 +244,20 @@ class MainActivity : Activity(), PlaybackService.Listener {
             EventLog.shared.add(Y2Keys.describe(if (event.action == KeyEvent.ACTION_DOWN) "DOWN" else "UP", name, event.scanCode, event.repeatCount))
         }
         if (event.action == KeyEvent.ACTION_DOWN && inSettings()) restartAutoClose()   // any key, volume included
-        // At the volume cap, Volume Up (and its repeats) never reaches the system while we are in front.
-        // Screen-off presses go straight to the system; the service's VolumeLimiter clamps those.
+        val volumeKey = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+        // While we are in front, Volume keys (and their repeats) set the music volume themselves and show
+        // our own readout instead of Android's popup, stopping at the volume cap. On the diagnostics screen
+        // they go to the system. Screen-off presses go straight to the system; the service's VolumeLimiter
+        // clamps those.
+        if (volumeKey && nav.screen != PlayerNav.Screen.DIAGNOSTICS) {
+            if (event.action == KeyEvent.ACTION_DOWN) changeVolume(up = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP)
+            return true
+        }
         if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP && event.action == KeyEvent.ACTION_DOWN) {
             val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             if (VolumeCap.blocksUp(audio.getStreamVolume(AudioManager.STREAM_MUSIC), settingsStore.volumeCap)) return true
         }
-        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || event.keyCode == KeyEvent.KEYCODE_POWER) {
+        if (volumeKey || event.keyCode == KeyEvent.KEYCODE_POWER) {
             return super.dispatchKeyEvent(event)
         }
         val down = event.action == KeyEvent.ACTION_DOWN
@@ -296,6 +306,22 @@ class MainActivity : Activity(), PlaybackService.Listener {
         render()
         return true
     }
+
+    /** One Volume key press: a step on the music stream with no system UI or sound, then our readout. */
+    private fun changeVolume(up: Boolean) {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val cap = settingsStore.volumeCap
+        val target = VolumeCap.step(current, max, cap, up)
+        if (target != current) audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+        view.volume.show(target, max, if (cap == VolumeCap.NONE) -1 else cap)
+        view.invalidate()
+        handler.removeCallbacks(hideVolume)
+        handler.postDelayed(hideVolume, VolumeOverlay.SHOW_MS)
+    }
+
+    private val hideVolume = Runnable { view.volume.hide(); view.invalidate() }
 
     private fun inSettings() = nav.screen == PlayerNav.Screen.SETTINGS || nav.screen == PlayerNav.Screen.DIAGNOSTICS
 
