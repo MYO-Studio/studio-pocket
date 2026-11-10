@@ -12,8 +12,8 @@ import android.graphics.RectF
 
 /**
  * Draws [menu] over the screen when it is open, in the volume readout's style: a dark rounded panel
- * with a soft shadow, a dim "Play mode" heading, one row per mode, the selected row in a purple
- * pill, and a tick on the playlist's current mode.
+ * with a soft shadow, a dim "Play mode" heading, one row per mode (its icon, as Now Playing shows it,
+ * and its name), the selected row in a purple pill, and a tick on the playlist's current mode.
  */
 class ModeMenuOverlay(private val menu: ModeMenu) {
     private val fill = Ui.fill(Ui.blend(Ui.bg, 0xFF000000.toInt(), 0.15f))
@@ -28,6 +28,7 @@ class ModeMenuOverlay(private val menu: ModeMenu) {
         style = Paint.Style.STROKE; strokeWidth = 3f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; color = Ui.ink
     }
     private val tickPath = Path()
+    private val icons = ModeIcons()
     private val rect = RectF()
 
     fun draw(c: Canvas, w: Int, h: Int) {
@@ -57,7 +58,9 @@ class ModeMenuOverlay(private val menu: ModeMenu) {
                 c.drawRoundRect(rect, (ROW_H - 4f) / 2f, (ROW_H - 4f) / 2f, highlight)
             }
             val baseline = rowTop + ROW_H / 2f - (label.ascent() + label.descent()) / 2f
-            c.drawText(ModeMenu.label(mode), left + ROW_INSET + TEXT_PAD, baseline, label)
+            // Each mode's icon (Normal has none: its space stays empty so the words line up), then its name.
+            icons.draw(c, mode, left + ROW_INSET + TEXT_PAD, rowTop + ROW_H / 2f, Ui.ink)
+            c.drawText(ModeMenu.label(mode), left + ROW_INSET + TEXT_PAD + ModeIcons.W + ICON_GAP, baseline, label)
             if (mode == menu.current) drawTick(c, right - ROW_INSET - TEXT_PAD - TICK_W, rowTop + ROW_H / 2f)
         }
     }
@@ -81,6 +84,7 @@ class ModeMenuOverlay(private val menu: ModeMenu) {
         const val TEXT_PAD = 14f
         const val ROW_TEXT = 22f
         const val TICK_W = 16f
+        const val ICON_GAP = 12f
         val SHADOW_ALPHAS = intArrayOf(60, 35, 18)
     }
 }

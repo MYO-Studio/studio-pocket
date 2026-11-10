@@ -43,7 +43,7 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         val scrub: Int = 0,
         /** The clock top left ("9:36"); null hides it. */
         val clock: String? = null,
-        /** The playlist's play mode, named after "Track n of m" unless it is Normal. */
+        /** The playlist's play mode, shown as an icon after the track line unless it is Normal. */
         val mode: PlayMode = PlayMode.NORMAL,
     ) {
         /** The track on screen: the browsed one, else the playing one. */
@@ -64,6 +64,7 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
     private val chrome = CardRenderer()
     private val playPath = Path()
     private val scrubPath = Path()
+    private val modeIcons = ModeIcons()
 
     private var state = State(null, 0, "", 0L, 0L, Status.STOPPED, null)
     private var background = Ui.bg
@@ -159,11 +160,19 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
             s.error != null -> s.error
             s.status == Status.STOPPED -> "Done"
             s.status == Status.PREPARING -> "Loading…"
-            s.mode != PlayMode.NORMAL -> "Track ${s.trackIndex + 1} of $total · ${ModeMenu.label(s.mode)}"
             else -> "Track ${s.trackIndex + 1} of $total"
         }
         if (LowBattery.warn(s.batteryPercent, s.charging)) Ui.centred(c, w, LowBattery.TEXT, warnPaint, LINE_BASELINE)
-        else Ui.centred(c, w, Ui.ellipsize(linePaint, line, maxText), linePaint, LINE_BASELINE)
+        else if (!modeIcons.has(s.mode)) Ui.centred(c, w, Ui.ellipsize(linePaint, line, maxText), linePaint, LINE_BASELINE)
+        else {
+            // The play mode's icon after the line, the pair centred together.
+            val extra = MODE_GAP + ModeIcons.W
+            val text = Ui.ellipsize(linePaint, line, maxText - extra)
+            val left = (w - linePaint.measureText(text) - extra) / 2f
+            c.drawText(text, left, LINE_BASELINE, linePaint)
+            val iconX = left + linePaint.measureText(text) + MODE_GAP
+            modeIcons.draw(c, s.mode, iconX, LINE_BASELINE - Ui.TEXT * 0.35f, Ui.inkDim)
+        }
 
         val topX = chrome.clock(c, s.clock)
         s.sleepMinutesLeft?.let { c.drawText("Sleep ${it}m", topX, CardRenderer.BATT_BASELINE, linePaint) }
@@ -250,6 +259,8 @@ class NowPlayingScreen : Screen(), Artwork.Listener, PixelIcon.Listener {
         const val TIME_BASELINE = 276f
         const val BAR_MARGIN = 28f
         const val SCRUB_GAP = 8f
+        /** Between the track line and the play-mode icon after it. */
+        const val MODE_GAP = 10f
         const val SCRUB_W = 9f
         const val SCRUB_H = 12f
         const val BAR_Y = 288f
