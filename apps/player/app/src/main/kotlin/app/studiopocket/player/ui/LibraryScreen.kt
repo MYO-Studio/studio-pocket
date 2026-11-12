@@ -8,6 +8,7 @@ package app.studiopocket.player.ui
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.SystemClock
+import app.studiopocket.player.library.CoverProgress
 import app.studiopocket.player.library.LoadedLibrary
 import app.studiopocket.player.library.LoadedPlaylist
 
@@ -34,6 +35,10 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val playing: Boolean,
         val batteryPercent: Int,
         val charging: Boolean,
+        /** The clock top left ("9:36"); null hides it. */
+        val clock: String? = null,
+        /** Each playlist's cover bar (by id): how far through it is, or finished; absent shows no bar. */
+        val progress: Map<String, CoverProgress> = emptyMap(),
     )
 
     private val cards = CardRenderer()
@@ -76,6 +81,7 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val s = state
         if (s.batteryPercent >= 0) cards.battery(c, w, s.batteryPercent, s.charging)
         if (!s.storageAvailable) {
+            cards.clock(c, s.clock)
             Ui.centred(c, w, "Connected to computer", emptyTitle, h / 2f)
             Ui.centred(c, w, "Unplug the cable to play", emptySub, h / 2f + EMPTY_GAP)
             return
@@ -96,7 +102,8 @@ class LibraryScreen : Screen(), Artwork.Listener {
         else if (LowBattery.warn(s.batteryPercent, s.charging)) Ui.centred(c, w, LowBattery.TEXT, footer, h - PROBLEM_BASELINE)
         else if (hidden > 0) Ui.centred(c, w, if (hidden == 1) "1 playlist could not be read" else "$hidden playlists could not be read", footer, h - PROBLEM_BASELINE)
         val pillLeft = s.playingTitle?.let { cards.pill(c, w, it, s.playing) }
-        s.groupLabel?.let { cards.groupLabel(c, it, (pillLeft ?: GROUP_LABEL_MAX + Ui.MARGIN) - Ui.MARGIN - GROUP_LABEL_GAP) }
+        val labelX = cards.clock(c, s.clock)
+        s.groupLabel?.let { cards.groupLabel(c, it, (pillLeft ?: GROUP_LABEL_MAX + Ui.MARGIN) - labelX - GROUP_LABEL_GAP, labelX) }
         if (animStart != 0L) invalidateDelayed(FRAME_MS)
     }
 
@@ -113,7 +120,7 @@ class LibraryScreen : Screen(), Artwork.Listener {
         val save = c.save()
         c.rotate(fan * FAN_ANGLE, pivotX, CARD_BOTTOM)
         c.scale(scale, scale, pivotX, CARD_BOTTOM)
-        cards.card(c, playlists[index], left, alpha, index == selected)
+        cards.card(c, playlists[index], left, alpha, index == selected, state.progress[playlists[index].id])
         c.restoreToCount(save)
     }
 
@@ -133,8 +140,9 @@ class LibraryScreen : Screen(), Artwork.Listener {
     }
 
     companion object {
-        const val CARD_TOP = 24f
-        const val CARD_BOTTOM = Ui.H - CARD_TOP
+        /** Below the top strip (clock, group name, now-playing pill, battery), ring included. */
+        const val CARD_TOP = 44f
+        const val CARD_BOTTOM = Ui.H - 24f
         const val CARD_H = CARD_BOTTOM - CARD_TOP
         const val CARD_RATIO = 0.63f
         val CARD_W: Float = Math.round(CARD_H * CARD_RATIO).toFloat()

@@ -12,7 +12,7 @@ Anything not listed under "Results" has not been tested on hardware.
 | Computer | macOS 15 (Darwin 24.6), USB data cable |
 | mtkclient | 2.1.4 at commit `7cb40e7` with the patches in `scripts/patch-mtkclient.py`, over the preloader's serial port (`--serialport DETECT`); both the patched venv and the standalone bundle |
 | e2fsprogs | 1.47 (`scripts/build-e2fsprogs.sh` builds 1.47.4) |
-| Studio Pocket player | 0.4.x for the October runs; 0.6.0 for the November runs |
+| Studio Pocket player | 0.4.x for the October runs; 0.6.0 for the early November runs; release-key-signed test builds of 0.7.0 and 0.8.0 from 2026-11-09 |
 
 ## Results
 
@@ -42,6 +42,7 @@ All passed unless the row says otherwise.
 | 2026-11-05 | The download agent fetched at first use | `mtk-check` downloaded it from upstream mtkclient, the SHA-256 matched the pin, and it was kept in the firmware dir; every later session passed it to mtkclient by path (`Using custom loader`) |
 | 2026-11-05 | `read-device`, `prepare-device`, `write --action install`, then `write --action restore`, with an mtkclient bundle holding no download agent, preloader or WinFsp file | No preloader was asked for (no "DRAM config needed"); both writes verified; Studio Pocket, then stock, booted |
 | 2026-11-05 | `studio-pocket-sync` into an existing library | The new playlist appeared and played after unplugging; the playlists already on the player were untouched |
+| 2026-11-11 | `prepare-upgrade`, then `write --action upgrade`, with a release-key-signed test build of the 0.8.0 player | Upgraded in place; the 0.8.0 player features (play modes, cover progress, scrubbing, the clock, Settings > Date & time and Sound, the volume display) worked |
 
 ## Not tested
 
@@ -49,10 +50,7 @@ All passed unless the row says otherwise.
   Cygwin e2fsprogs bundle, and `studio-pocket-sync` to a drive letter.
 - **Linux**, every part: the commands have only been built and unit-tested there, not run against a
   player.
-- **Upgrade** (`prepare-upgrade`, then `write --action upgrade`), and restoring a player after an
-  upgrade.
-- An APK signed with the official release key: every install so far used a development-signed
-  build.
+- Restoring a player after an upgrade.
 - Stock firmware **3.2.1** (build `1786709305`): the installer knows it, but no tested player
   carried it.
 - More than one player, or a player whose partition layout differs from this one.

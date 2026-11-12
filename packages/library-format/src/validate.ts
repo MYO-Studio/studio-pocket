@@ -4,8 +4,8 @@
 // commercial licence from Ashworth Digital Ltd (see COPYING.commercial).
 
 import {
-    DEVICE_FORMAT, FORMAT_VERSION, GROUP_DISPLAYS, GROUPS_DIR, GROUPS_FORMAT, LIBRARY_FORMAT, MAX_GROUPS, MAX_GROUP_COVERS, MAX_GROUP_TITLE, MAX_ICON_REF, MAX_RECENT, PLAYLIST_FORMAT, RECENT_FORMAT, RESERVED_GROUP_IDS, STATE_FORMAT,
-    type DeviceMarker, type GroupDisplay, type GroupsFile, type LibraryIndex, type LibraryIndexEntry, type PlaybackState, type PlaylistGroup, type PlaylistManifest, type RecentFile, type TrackEntry,
+    DEVICE_FORMAT, FORMAT_VERSION, GROUP_DISPLAYS, GROUPS_DIR, GROUPS_FORMAT, LIBRARY_FORMAT, MAX_GROUPS, MAX_GROUP_COVERS, MAX_GROUP_TITLE, MAX_ICON_REF, MAX_RECENT, PLAY_MODES, PLAYLIST_FORMAT, RECENT_FORMAT, RESERVED_GROUP_IDS, STATE_FORMAT,
+    type DeviceMarker, type GroupDisplay, type GroupsFile, type LibraryIndex, type LibraryIndexEntry, type PlaybackState, type PlayMode, type PlaylistGroup, type PlaylistManifest, type RecentFile, type TrackEntry,
 } from './types.js';
 
 /**
@@ -140,7 +140,12 @@ export function validateDeviceMarker(value: unknown, path = 'device'): DeviceMar
 export function validatePlaybackState(value: unknown, path = 'state'): PlaybackState {
     const o = obj(value, path);
     header(o, STATE_FORMAT, path);
-    return { format: STATE_FORMAT, formatVersion: FORMAT_VERSION, playlistId: id(o, 'playlistId', path), trackIndex: int(o, 'trackIndex', path), positionMs: int(o, 'positionMs', path), updatedAt: str(o, 'updatedAt', path, 40) };
+    const state: PlaybackState = { format: STATE_FORMAT, formatVersion: FORMAT_VERSION, playlistId: id(o, 'playlistId', path), trackIndex: int(o, 'trackIndex', path), positionMs: int(o, 'positionMs', path), updatedAt: str(o, 'updatedAt', path, 40) };
+    // Optional, and only a true boolean counts, as on the player.
+    if (o.finished === true) state.finished = true;
+    // Optional; an unknown name reads as normal (absent), as on the player.
+    if (typeof o.mode === 'string' && o.mode !== 'normal' && (PLAY_MODES as readonly string[]).includes(o.mode)) state.mode = o.mode as PlayMode;
+    return state;
 }
 
 const idList = (o: Obj, key: string, path: string, max?: number): string[] => {
