@@ -94,7 +94,14 @@ export interface PlaybackState {
     trackIndex: number;
     positionMs: number;
     updatedAt: string;
+    /** Played through to the end (the position is then the top). Optional, written only when true (player 0.8.0+). */
+    finished?: true;
+    /** The playlist's own play mode. Optional, absent for normal (player 0.8.0+). */
+    mode?: PlayMode;
 }
+
+export const PLAY_MODES = ['normal', 'repeat-all', 'repeat-one', 'shuffle'] as const;
+export type PlayMode = (typeof PLAY_MODES)[number];
 
 /*
  * Playlist groups (added 2026-10-21, still format version 1): two optional files at the root.
@@ -111,6 +118,11 @@ export const RECENT_FILE = 'recent.json';
 export const MAX_GROUPS = 30;
 export const MAX_GROUP_TITLE = 40;
 export const MAX_ICON_REF = 100;
+/** How a user group's tile looks on the player (added 2026-11, still format version 1). */
+export const GROUP_DISPLAYS = ['icon', 'image', 'covers', 'recent'] as const;
+export type GroupDisplay = (typeof GROUP_DISPLAYS)[number];
+/** At most this many chosen covers per group (first = top card). */
+export const MAX_GROUP_COVERS = 3;
 /** The player's system groups; a user group can never take these ids. */
 export const RESERVED_GROUP_IDS: readonly string[] = ['recent', 'all'];
 /** The player keeps this many entries in recent.json and shows this many in Recent. */
@@ -127,6 +139,12 @@ export interface PlaylistGroup {
     iconRef?: string;
     /** Playlist ids in cover-flow order. Ids not in library.json are allowed and ignored. */
     playlists: string[];
+    /** Tile look. Absent or unknown = `icon`. `image` without an image falls back to `icon`. */
+    display?: GroupDisplay;
+    /** `groups/<name>`: a picture already cropped to the card shape (ratio 0.63, about 252x400 JPEG). */
+    image?: string | null;
+    /** Up to MAX_GROUP_COVERS playlist ids from `playlists`, unique, first = top card. */
+    covers?: string[];
 }
 
 export interface GroupsFile {

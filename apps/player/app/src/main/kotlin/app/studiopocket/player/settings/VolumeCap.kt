@@ -18,6 +18,16 @@ object VolumeCap {
     /** Whether Volume Up should be swallowed: already at (or above) the cap. */
     fun blocksUp(current: Int, cap: Int): Boolean = cap != NONE && cap >= 0 && current >= cap
 
+    /**
+     * The level one Volume key press moves to: one step [up] or down from [current], never below 0,
+     * above [max] or (going up) above the cap. Already above the cap, up leaves it where it is.
+     */
+    fun step(current: Int, max: Int, cap: Int, up: Boolean): Int {
+        if (!up) return maxOf(0, current - 1)
+        val ceiling = if (cap != NONE && cap >= 0) minOf(cap, max) else max
+        return if (current >= ceiling) current else current + 1
+    }
+
     /** "1" .. "max-1", then "No limit" (a cap at max would be no limit). */
     fun labels(max: Int): List<String> = (1 until max).map { it.toString() } + "No limit"
 

@@ -10,7 +10,8 @@
 // in the bundle, when any file is under _internal/mtkclient/Loader/ (MediaTek's download agents and
 // the OEM preloader images: the bundles carry none; the installer fetches the one download agent at
 // first use), and when a native library in _internal/ has no "nativeLibraries" entry or an entry's
-// notice file is missing or does not start the way its licence's text does. After those static checks it
+// notice file is missing or does not start the way its licence's text does, and on macOS when a Mach-O
+// file needs a later macOS than 11.0 (MTK_BUNDLE_MAX_MACOS), as Homebrew's libusb does. After those static checks it
 // runs the bundle's mtk (mtk.exe on Windows) on this host: with STUDIO_POCKET_PROBE=1 and no arguments
 // it must exit 0 and print exactly the identity-gate line (the capability probe the runners use),
 // and with neither it must exit 2 (usage). So the bundle must be checked on the OS it was built for.
@@ -20,7 +21,7 @@
 //        MTK_BUNDLE_SKIP_PROBE=1 ...                        (static checks only; for fixture bundles in tests)
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -75,6 +76,45 @@ for (const f of bundleFiles.filter((f) => /^winfsp/i.test(path.posix.basename(f)
 // No download agent and no preloader image: the installer fetches the agent (packages/firmware-tools/src/da.ts).
 const loaderFiles = bundleFiles.filter((f) => f.startsWith('_internal/mtkclient/Loader/'));
 if (loaderFiles.length) problems.push(`${loaderFiles.length} file(s) under _internal/mtkclient/Loader/ (the bundle carries no download agent or preloader): ${loaderFiles.slice(0, 5).join(', ')}`);
+
+// macOS: no native file may need a newer macOS than the oldest the desktop supports. A library
+// copied from Homebrew needs the macOS it was bottled for (a macos-latest runner's), and a bundle
+// carrying it fails to load on every older Mac; scripts/build-libusb-macos.sh builds libusb for 11.0.
+const MAX_MACOS = process.env.MTK_BUNDLE_MAX_MACOS || '11.0';
+let machOChecked = 0;
+const MACHO_MAGIC = new Set(['feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe', 'bebafeca']);
+function isMachO(file) {
+    const fd = openSync(file, 'r');
+    try {
+        const head = Buffer.alloc(4);
+        return readSync(fd, head, 0, 4, 0) === 4 && MACHO_MAGIC.has(head.toString('hex'));
+    } finally { closeSync(fd); }
+}
+const newer = (a, b) => {  // true when version a is later than b (dotted numbers)
+    const x = a.split('.').map(Number), y = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+    return false;
+};
+if (process.platform === 'darwin') {
+    const tooNew = [];
+    for (const f of bundleFiles) {
+        const full = path.join(dir, f);
+        if (!isMachO(full)) continue;
+        const otool = spawnSync('otool', ['-arch', 'all', '-l', full], { encoding: 'utf8' });
+        if (otool.error || otool.status !== 0) { problems.push(`otool could not read ${f}`); continue; }
+        machOChecked++;
+        // LC_BUILD_VERSION's "minos", or the older LC_VERSION_MIN_MACOSX's "version", per architecture.
+        // (Only those two commands: LC_BUILD_VERSION's tool entries and LC_SOURCE_VERSION have "version" lines too.)
+        const mins = otool.stdout.split(/^Load command \d+$/m).flatMap((block) => {
+            const field = /^\s*cmd LC_BUILD_VERSION$/m.test(block) ? 'minos' : /^\s*cmd LC_VERSION_MIN_MACOSX$/m.test(block) ? 'version' : null;
+            const m = field && block.match(new RegExp(`^\\s*${field} (\\d+(?:\\.\\d+)*)$`, 'm'));
+            return m ? [m[1]] : [];
+        });
+        const worst = mins.reduce((w, v) => (newer(v, w) ? v : w), '0');
+        if (newer(worst, MAX_MACOS)) tooNew.push(`${f} (macOS ${worst})`);
+    }
+    if (tooNew.length) problems.push(`${tooNew.length} native file(s) need a macOS later than ${MAX_MACOS}: ${tooNew.slice(0, 5).join(', ')}`);
+}
 
 // The first line of a licence text that has a letter or digit in it, without comment marks or indentation.
 function firstLine(text) {
@@ -184,5 +224,6 @@ if (info) {
     console.log('no Loader/ files: no download agent or preloader in the bundle');
     console.log(`native libraries ok: ${natives} in _internal/ mapped, ${notices} notice files checked`);
 }
+if (machOChecked) console.log(`macOS ${MAX_MACOS} or later: all ${machOChecked} Mach-O files`);
 if (probed) console.log('probe ok');
 console.log(`mtkclient bundle ok: ${dir}`);

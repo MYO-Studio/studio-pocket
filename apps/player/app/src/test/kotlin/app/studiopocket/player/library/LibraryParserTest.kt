@@ -6,6 +6,7 @@
 package app.studiopocket.player.library
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -55,6 +56,16 @@ class LibraryParserTest {
     fun stateRoundTrips() {
         val state = PlaybackState("bedtime", 2, 12345L, "2026-10-18T12:00:00Z")
         assertEquals(state, LibraryParser.parsePlaybackState(LibraryParser.serializePlaybackState(state)))
+        assertFalse(LibraryParser.serializePlaybackState(state).contains("finished"))
+        val finished = PlaybackState("bedtime", 0, 0L, "2026-10-18T12:00:00Z", finished = true)
+        assertEquals(finished, LibraryParser.parsePlaybackState(LibraryParser.serializePlaybackState(finished)))
+        assertFalse(LibraryParser.serializePlaybackState(state).contains("mode"))
+        for (mode in PlayMode.values()) {
+            val withMode = state.copy(mode = mode)
+            assertEquals(withMode, LibraryParser.parsePlaybackState(LibraryParser.serializePlaybackState(withMode)))
+        }
+        val unknown = LibraryParser.serializePlaybackState(state).replace("\"updatedAt\"", "\"mode\": \"sideways\", \"updatedAt\"")
+        assertEquals(PlayMode.NORMAL, LibraryParser.parsePlaybackState(unknown).mode)
         val fixture = LibraryParser.parsePlaybackState(File(Fixtures.root, "state/bedtime.json").readText())
         assertEquals(1, fixture.trackIndex)
         assertEquals(1500L, fixture.positionMs)

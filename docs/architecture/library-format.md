@@ -23,6 +23,7 @@ STUDIOPOCKET/
   state/<id>.json          resume position, written by the player only; the sync engine preserves it
   groups.json              optional: playlist groups, written by the computer only (see below)
   groups/<name>.png        optional 16x16 group icons
+  groups/<name>.jpg        optional group pictures, already card-shaped
   recent.json              optional: last played playlists, written by the player only
 ```
 
@@ -72,6 +73,15 @@ must be `tracks/<name>`. `mimeType` is one of `audio/mpeg`, `audio/mp4`, `audio/
 { "format": "studiopocket-state", "formatVersion": 1,
   "playlistId": "bedtime", "trackIndex": 1, "positionMs": 1500, "updatedAt": "…" }
 ```
+
+From 0.8.0 the player adds `"finished": true` when a playlist plays through to its end (the
+position is then track 0 at 0 ms, ready to start again), and drops it at the next save once it plays
+again. The cover shows a finished playlist with a full bar and a tick. Older players ignore the field;
+readers treat anything but `true` as not finished.
+
+Also from 0.8.0, `"mode"` holds the playlist's own play mode, chosen on Now Playing by holding Centre:
+`"repeat-all"`, `"repeat-one"` or `"shuffle"`; absent means normal, and readers treat an unknown name
+as normal. Shuffle stores no order: each next track is picked at random when it is needed.
 
 ### `device.json`
 
@@ -141,12 +151,45 @@ Fixtures: `fixtures/library/STUDIOPOCKET/{groups.json,groups/,recent.json}` and
 | Rule | Why |
 |---|---|
 | ≤ 30 groups; `id` is an id (as above), unique, and not `recent` or `all` | Bounded on the device; the player's system groups need those names. |
-| `title` 1–40 chars | A label under a square on a 2.4" screen. |
+| `title` 1–40 chars | A label under a group's tile on a 2.4" screen. |
 | `icon` optional (absent or `null` = the player's folder glyph); must be `groups/<file name>` | Same file-name rules as covers. A missing or unreadable file is non-fatal. |
 | `iconRef` optional string ≤ 100, ignored by the player | Lets the writer record which icon was picked (for example `yoto:<mediaId>`). |
 | `playlists`: ids, unique within the group, and a playlist is in at most one group | Folder semantics. The validator rejects a playlist in two groups; the player lets the first win. |
 | Ids not in `library.json` are allowed | Removing a playlist never breaks groups; the writer prunes them when it writes. |
 | Order of `groups` is order on the player; order of `playlists` is the group's cover-flow order | Explicit, set by the writer. |
+| `display`, `image`, `covers` optional | How the group's tile looks; see below. |
+
+#### How a group's tile looks (added 2026-11, still format version 1)
+
+Three optional fields per group. Players that predate them ignore them and show the icon.
+
+```json
+{ "id": "g-1a2b3c4d", "title": "Bedtime", "icon": "groups/g-1a2b3c4d.png",
+  "playlists": ["yoto-abc", "local-3f9a2c1b7d", "local-77e0"],
+  "display": "covers", "image": "groups/g-1a2b3c4d-image.jpg", "covers": ["local-77e0", "yoto-abc"] }
+```
+
+| Field | Rule | On the player |
+|---|---|---|
+| `display` | A string. `icon` (the default when absent), `image`, `covers` or `recent`. An unknown string reads as `icon`. | Picks the tile below. |
+| `image` | Optional, `null` or `groups/<file name>`, same file-name rules as covers. A JPEG or PNG already cropped to the card shape: portrait, width ÷ height 0.63, about 252×400, at most 512 px on the long edge. The player crops to fill, so other shapes still show, cut down. | A missing or unreadable file is non-fatal. |
+| `covers` | Optional, at most 3 playlist ids, unique, each also in this group's `playlists`. The first is the top card. | Covers of playlists not on the player, or with no cover, are skipped. |
+
+What each `display` draws:
+
+- `icon`: the group's icon (or the folder glyph) on one card. No stack.
+- `image`: `image` on one card, no stack. Without a usable `image` it falls back to `icon`.
+- `covers`: a stack of `image` (if set) on top, then the `covers`, up to 3 cards in all.
+- `recent`: a stack of `image` (if set) on top, then the group's playlists in Recent order (most
+  recently played first), then its others in group order, up to 3 cards in all.
+
+The built-in Recent and All tiles are always stacks of their first 3 playlists' covers. A stack
+holds only real pictures: a playlist without a cover gets no card, so a stack can be 1–3 cards,
+and one with nothing to show falls back to the icon. When the selected tile has rested for half a
+second, a stack of two or more fans out; a single card never does.
+
+The desktop writes the picture as `groups/<groupId>-image.jpg` and deletes files in `groups/` that
+no group refers to when it saves. A hand-written file can use any name under `groups/`.
 
 `recent.json` is written by the player only (atomically) and preserved by the sync engine, like
 `state/`:
@@ -162,9 +205,9 @@ backwards after a flat battery.
 
 Validation is strict on the computer and tolerant on the player. `checkLibrary` returns the parsed
 `groups` and `recent` (null when absent or invalid) and reports a bad file or a missing group icon
-as a `(non-fatal)` problem; a bad `groups.json` never hides a playlist. The player skips a
-malformed group or id rather than the whole file, cuts a long title, treats a bad icon path as no
-icon, and treats a file it cannot read, or a newer `formatVersion`, as no groups. The sync
+or picture as a `(non-fatal)` problem; a bad `groups.json` never hides a playlist. The player skips a
+malformed group or id rather than the whole file, cuts a long title, treats a bad icon or picture
+path as none, drops `covers` ids that are not in the group (keeping the first 3), and treats a file it cannot read, or a newer `formatVersion`, as no groups. The sync
 engine's stray clean-up and `applySync` never touch `groups.json`, `groups/` or `recent.json`
 (only root-level `.part` files, which are interrupted writes).
 

@@ -62,7 +62,40 @@ data class LoadedLibrary(val playlists: List<LoadedPlaylist>, val hidden: List<P
     }
 }
 
-data class PlaybackState(val playlistId: String, val trackIndex: Int, val positionMs: Long, val updatedAt: String)
+/**
+ * A playlist's resume position. [finished]: it last played through to the end (the position is then
+ * the top, ready to start again); any later save while playing clears it. [mode]: the playlist's own
+ * play mode, chosen on Now Playing (hold Centre).
+ */
+data class PlaybackState(
+    val playlistId: String,
+    val trackIndex: Int,
+    val positionMs: Long,
+    val updatedAt: String,
+    val finished: Boolean = false,
+    val mode: PlayMode = PlayMode.NORMAL,
+)
+
+/** How a playlist plays on, per playlist. [id] is its name in the state file ("mode"). */
+enum class PlayMode(val id: String) {
+    NORMAL("normal"), REPEAT_ALL("repeat-all"), REPEAT_ONE("repeat-one"), SHUFFLE("shuffle");
+
+    companion object {
+        /** An unknown or missing name is [NORMAL]. */
+        fun fromId(id: String?): PlayMode = values().firstOrNull { it.id == id } ?: NORMAL
+    }
+}
 
 /** One group as groups.json defines it, after tolerant parsing ([Groups.parse]). */
-data class GroupDef(val id: String, val title: String, val icon: String?, val playlists: List<String>)
+data class GroupDef(
+    val id: String,
+    val title: String,
+    val icon: String?,
+    val playlists: List<String>,
+    /** How the tile looks: "icon", "image", "covers" or "recent"; anything else reads as "icon". */
+    val display: String = Groups.DISPLAY_ICON,
+    /** The custom front-card picture, "groups/<file>", or null. */
+    val image: String? = null,
+    /** Up to 3 playlist ids for "covers", first = top card. */
+    val covers: List<String> = emptyList(),
+)

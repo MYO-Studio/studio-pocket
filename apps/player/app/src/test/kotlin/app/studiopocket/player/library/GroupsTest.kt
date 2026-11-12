@@ -27,6 +27,9 @@ class GroupsTest {
         assertEquals(listOf("g-bedtime", "g-music", "g-empty"), defs.map { it.id })
         assertEquals(GroupDef("g-bedtime", "Bedtime", "groups/g-bedtime.png", listOf("bedtime", "gone-away")), defs[0])
         assertNull(defs[1].icon)
+        assertEquals("covers", defs[1].display)
+        assertEquals(listOf("songs"), defs[1].covers)
+        assertEquals("icon", defs[0].display)
         assertTrue(defs[2].playlists.isEmpty())
     }
 
@@ -39,6 +42,9 @@ class GroupsTest {
         assertNull(parse("groups-icon-outside-groups.json")[0].icon)
         assertEquals(LibraryFormat.MAX_GROUPS, parse("groups-too-many.json").size)
         assertTrue(parse("groups-wrong-version.json").isEmpty())
+        assertTrue(parse("groups-cover-not-in-group.json")[0].covers.isEmpty())
+        assertEquals(Groups.STACK, parse("groups-too-many-covers.json")[0].covers.size)
+        assertNull(parse("groups-image-outside-groups.json")[0].image)
         assertTrue(Groups.parse("{ nope").isEmpty())
         assertTrue(Groups.parse("""{$header,"groups":{}}""").isEmpty())
     }
@@ -72,6 +78,8 @@ class GroupsTest {
         assertEquals(listOf("bedtime", "songs"), built.groups[3].playlists.map { it.id })
         assertNotNull(built.groups[1].iconFile)
         assertNull(built.groups[2].iconFile)
+        assertEquals(listOf("icon"), faces(built.groups[1]))
+        assertEquals(listOf("songs"), faces(built.groups[2])) // its chosen cover, a single card
         assertEquals("Bedtime", built.groups[1].title)
     }
 
@@ -120,5 +128,52 @@ class GroupsTest {
     fun loadsFromTheRootAndTreatsAMissingFileAsNoGroups() {
         assertEquals(3, Groups.load(Fixtures.root).size)
         assertTrue(Groups.load(File("/definitely/not/here")).isEmpty())
+    }
+
+    private fun faces(g: PlaylistGroup) = g.faces.map {
+        when (it) {
+            is PlaylistGroup.Face.Icon -> "icon"
+            is PlaylistGroup.Face.Image -> "image"
+            is PlaylistGroup.Face.Cover -> it.playlist.id
+        }
+    }
+
+    @Test
+    fun parsesDisplayImageAndCoversTolerantly() {
+        val defs = Groups.parse(file(
+            group("g-a", "songs", "bedtime", extra = ""","display":"covers","image":"groups/g-a-image.jpg","covers":["bedtime","nope","bedtime"]"""),
+            group("g-b", "songs", extra = ""","display":"sparkly","image":"../escape.jpg""""),
+            group("g-c", "songs"),
+        ))
+        assertEquals("covers", defs[0].display)
+        assertEquals("groups/g-a-image.jpg", defs[0].image)
+        assertEquals(listOf("bedtime"), defs[0].covers)
+        assertEquals("icon", defs[1].display)
+        assertNull(defs[1].image)
+        assertEquals("icon", defs[2].display)
+    }
+
+    @Test
+    fun buildsEachDisplayModesStack() {
+        val icon = File(Fixtures.root, "groups/g-bedtime.png").path.removePrefix(Fixtures.root.path + "/")
+        val defs = Groups.parse(file(
+            group("g-icon", "songs"),
+            group("g-image", "bedtime", extra = ""","display":"image","image":"$icon""""),
+            group("g-image-missing", "x1", "x2", extra = ""","display":"image","image":"groups/none.jpg""""),
+        ))
+        val more = Groups.parse(file(
+            group("g-covers", "songs", "bedtime", extra = ""","display":"covers","covers":["bedtime"]"""),
+        ))
+        val recentMode = Groups.parse(file(group("g-recent", "bedtime", "songs", extra = ""","display":"recent","image":"$icon"""")))
+        val a = Groups.build(library, defs, emptyList(), Fixtures.root).groups
+        assertEquals(listOf("icon"), faces(a[1]))
+        assertEquals(listOf("image"), faces(a[2]))
+        assertEquals(listOf("icon"), faces(a[0])) // empty Recent shows its clock alone
+        assertEquals(listOf("bedtime", "songs"), faces(a.last())) // "broken" has no cover, so no card
+        val b = Groups.build(library, more, listOf("songs"), Fixtures.root).groups
+        assertEquals(listOf("bedtime"), faces(b[1]))
+        assertEquals(listOf("songs"), faces(b[0]))
+        val r = Groups.build(library, recentMode, listOf("songs"), Fixtures.root).groups
+        assertEquals(listOf("image", "songs", "bedtime"), faces(r[1]))
     }
 }

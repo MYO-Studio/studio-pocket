@@ -5,7 +5,10 @@
 
 package app.studiopocket.player.playback
 
+import app.studiopocket.player.library.PlayMode
+
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TrackChangeTest {
@@ -20,9 +23,19 @@ class TrackChangeTest {
         assertEquals(TrackChange(0, play = false), TrackChange.afterCompletion(3, 4, sleepDue = true))
     }
 
-    @Test fun skipWrapsRound() {
-        assertEquals(TrackChange(0, play = true), TrackChange.skip(3, +1, 4, playing = true, sleepDue = false))
-        assertEquals(TrackChange(3, play = true), TrackChange.skip(0, -1, 4, playing = true, sleepDue = false))
+    @Test fun skipStopsAtTheFirstAndLastTrack() {
+        assertNull(TrackChange.skip(3, +1, 4, playing = true, sleepDue = false))
+        assertNull(TrackChange.skip(0, -1, 4, playing = true, sleepDue = false))
+        assertEquals(TrackChange(3, play = true), TrackChange.skip(2, +1, 4, playing = true, sleepDue = false))
+        assertEquals(TrackChange(0, play = true), TrackChange.skip(1, -1, 4, playing = true, sleepDue = false))
+    }
+
+    @Test fun jumpGoesStraightToATrackAndHonoursTheTimerLikeASkip() {
+        assertEquals(TrackChange(3, play = true), TrackChange.jump(3, 4, playing = true, sleepDue = false))
+        assertEquals(TrackChange(0, play = false), TrackChange.jump(0, 4, playing = true, sleepDue = true))
+        assertEquals(TrackChange(2, play = true), TrackChange.jump(2, 4, playing = false, sleepDue = true))
+        assertNull(TrackChange.jump(4, 4, playing = true, sleepDue = false))
+        assertNull(TrackChange.jump(-1, 4, playing = true, sleepDue = false))
     }
 
     @Test fun skipWhilePlayingWithTheTimerDueStopsOnTheTarget() =
@@ -31,4 +44,23 @@ class TrackChangeTest {
     @Test fun skipWhenNotPlayingAlwaysPlays() =
         // Paused or stopped, a key means "play": startTrack clears an overdue timer first.
         assertEquals(TrackChange(2, play = true), TrackChange.skip(1, +1, 4, playing = false, sleepDue = true))
+
+    @Test fun repeatOnePlaysTheSameTrackAgainButSkipsAsNormal() {
+        assertEquals(TrackChange(3, play = true), TrackChange.afterCompletion(3, 4, sleepDue = false, mode = PlayMode.REPEAT_ONE))
+        assertEquals(TrackChange(3, play = false), TrackChange.afterCompletion(3, 4, sleepDue = true, mode = PlayMode.REPEAT_ONE))
+        assertNull(TrackChange.skip(3, +1, 4, playing = true, sleepDue = false, mode = PlayMode.REPEAT_ONE))
+    }
+
+    @Test fun repeatAllGoesRoundOnCompletionAndOnSkips() {
+        assertEquals(TrackChange(0, play = true), TrackChange.afterCompletion(3, 4, sleepDue = false, mode = PlayMode.REPEAT_ALL))
+        assertEquals(TrackChange(0, play = true), TrackChange.skip(3, +1, 4, playing = true, sleepDue = false, mode = PlayMode.REPEAT_ALL))
+        assertEquals(TrackChange(3, play = true), TrackChange.skip(0, -1, 4, playing = true, sleepDue = false, mode = PlayMode.REPEAT_ALL))
+    }
+
+    @Test fun shuffleGoesWhereTheShufflePicksAndNeverEnds() {
+        assertEquals(TrackChange(1, play = true), TrackChange.afterCompletion(3, 4, sleepDue = false, mode = PlayMode.SHUFFLE, shuffleNext = 1))
+        assertEquals(TrackChange(2, play = true), TrackChange.skip(3, +1, 4, playing = true, sleepDue = false, mode = PlayMode.SHUFFLE, shuffleTarget = 2))
+        // Previous with nothing played before it: as Normal.
+        assertEquals(TrackChange(2, play = true), TrackChange.skip(3, -1, 4, playing = true, sleepDue = false, mode = PlayMode.SHUFFLE, shuffleTarget = null))
+    }
 }

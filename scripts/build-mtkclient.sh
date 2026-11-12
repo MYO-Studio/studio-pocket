@@ -18,6 +18,10 @@
 # Usage: scripts/build-mtkclient.sh            (first runs scripts/setup-mtkclient-venv.sh, which
 #                                               rebuilds firmware/tools/mtkclient-venv from the lock)
 #        OUT_DIR=... scripts/build-mtkclient.sh
+#        LIBUSB_DIR=build/libusb scripts/build-mtkclient.sh   (macOS: bundle the libusb that
+#                                               scripts/build-libusb-macos.sh built for macOS 11 and later,
+#                                               instead of the one PyInstaller finds, such as Homebrew's,
+#                                               which needs the macOS it was bottled for; the release does this)
 #
 # What is left out on purpose: the PySide6 GUI (79 MB), BROM exploit payloads, the Windows driver
 # installer, WinFsp (mtkclient's optional filesystem mount) and mtkclient's whole Loader/ folder:
@@ -54,8 +58,25 @@ echo "== patching mtkclient (idempotent)"
 PATCHES=$(grep -c "Studio Pocket patch" "$SITE"/mtkclient/Library/Port.py "$SITE"/mtkclient/Library/Connection/seriallib.py "$SITE"/mtkclient/Library/DA/legacy/dalegacy_lib.py "$SITE"/mtkclient/Library/partition.py "$SITE"/mtkclient/Library/mtk_main.py "$SITE"/mtkclient/mtk.py | awk -F: '{s+=$2} END {print s}')
 [ "$PATCHES" -ge 9 ] || { echo "expected the Studio Pocket patches in the venv, found $PATCHES markers"; exit 1; }
 
+LIBUSB_ARGS=()
+if [ -n "${LIBUSB_DIR:-}" ]; then
+  # Absolute: PyInstaller resolves --add-binary paths from its work folder, not from here.
+  LIBUSB_DIR="$(cd "$LIBUSB_DIR" && pwd)" || { echo "LIBUSB_DIR=$LIBUSB_DIR is not a folder"; exit 1; }
+  for f in libusb-1.0.0.dylib COPYING VERSION; do
+    [ -f "$LIBUSB_DIR/$f" ] || { echo "LIBUSB_DIR=$LIBUSB_DIR has no $f (build it with scripts/build-libusb-macos.sh)"; exit 1; }
+  done
+  # PyInstaller's own usb hook would also add whichever libusb it finds on this Mac: with pyusb
+  # discovery skipped it still falls back to ctypes.util.find_library, which finds Homebrew's in
+  # /usr/local/lib on Intel. Our hook (written below) replaces it and adds nothing.
+  LIBUSB_ARGS=(--add-binary "$LIBUSB_DIR/libusb-1.0.0.dylib:." --additional-hooks-dir "$WORK/hooks")
+fi
+
 echo "== building"
 rm -rf "$WORK"; mkdir -p "$WORK"
+if [ -n "${LIBUSB_DIR:-}" ]; then
+  mkdir -p "$WORK/hooks"
+  printf '# The libusb comes from LIBUSB_DIR (--add-binary); collect no other.\nhiddenimports = ["glob"]\nbinaries = []\n' > "$WORK/hooks/hook-usb.py"
+fi
 # The venv's own mtk launcher is an .exe on Windows, so PyInstaller gets this equivalent script.
 printf 'import sys\nfrom mtkclient.mtk import main\nif __name__ == "__main__":\n    sys.exit(main())\n' > "$WORK/mtk.py"
 "$BIN/pyinstaller" --noconfirm --clean --onedir --name mtk \
@@ -63,6 +84,7 @@ printf 'import sys\nfrom mtkclient.mtk import main\nif __name__ == "__main__":\n
   --hidden-import mfusepy --hidden-import serial.tools.list_ports --hidden-import usb.backend.libusb1 \
   --exclude-module PySide6 --exclude-module shiboken6 --exclude-module PyQt5 --exclude-module PyQt6 \
   --exclude-module tkinter --exclude-module capstone --exclude-module keystone --exclude-module unicorn \
+  ${LIBUSB_ARGS[@]+"${LIBUSB_ARGS[@]}"} \
   --distpath "$WORK/dist" --workpath "$WORK/build" --specpath "$WORK" "$WORK/mtk.py" > "$WORK/pyinstaller.log" 2>&1 || { tail -30 "$WORK/pyinstaller.log"; exit 1; }
 BUNDLE="$WORK/dist/mtk"
 
@@ -112,7 +134,16 @@ LIBUSB_VERSION=""
 if ls "$BUNDLE/_internal"/libusb* >/dev/null 2>&1; then
     # The version goes into BUNDLE-INFO.json ("libusb"); the release attaches that version's upstream
     # source tarball (libusb-<version>-source.tar.bz2, pinned in scripts/libusb-pin.json).
-    if command -v brew >/dev/null 2>&1 && brew --prefix libusb >/dev/null 2>&1; then
+    if [ -n "${LIBUSB_DIR:-}" ]; then
+        # Exactly the library build-libusb-macos.sh made, and nothing else PyInstaller found.
+        BUNDLED_LIBUSB="$(ls "$BUNDLE/_internal"/libusb*)"
+        [ "$(echo "$BUNDLED_LIBUSB" | wc -l | tr -d ' ')" = 1 ] || { echo "expected one libusb in _internal/, found: $BUNDLED_LIBUSB"; exit 1; }
+        # PyInstaller rewrites and re-signs what it collects, so the bytes differ; the Mach-O UUID does not.
+        macho_uuid() { otool -l "$1" | awk '/cmd LC_UUID/{u=1} u&&/uuid/{print $2; exit}'; }
+        [ -n "$(macho_uuid "$BUNDLED_LIBUSB")" ] && [ "$(macho_uuid "$BUNDLED_LIBUSB")" = "$(macho_uuid "$LIBUSB_DIR/libusb-1.0.0.dylib")" ] \
+            || { echo "$BUNDLED_LIBUSB is not the library in LIBUSB_DIR=$LIBUSB_DIR"; exit 1; }
+        LIBUSB_VERSION="$(cat "$LIBUSB_DIR/VERSION")"
+    elif command -v brew >/dev/null 2>&1 && brew --prefix libusb >/dev/null 2>&1; then
         # The linked keg (opt/libusb -> Cellar/libusb/<version>[_<revision>]), not every installed version.
         LIBUSB_VERSION="$(basename "$(cd "$(brew --prefix libusb)" && pwd -P)" | sed 's/_[0-9]*$//')"
     elif command -v pkg-config >/dev/null 2>&1; then
@@ -125,7 +156,7 @@ if ls "$BUNDLE/_internal"/libusb* >/dev/null 2>&1; then
         > "$LICENCES/README.txt"
     # The LGPL-2.1 text itself ships too; the build fails when the library is bundled without it.
     LIBUSB_COPYING=""
-    for c in "$(command -v brew >/dev/null 2>&1 && brew --prefix libusb 2>/dev/null)/COPYING" /usr/share/doc/libusb-1.0-0/copyright; do
+    for c in "${LIBUSB_DIR:+$LIBUSB_DIR/COPYING}" "$(command -v brew >/dev/null 2>&1 && brew --prefix libusb 2>/dev/null)/COPYING" /usr/share/doc/libusb-1.0-0/copyright; do
         if [ -f "$c" ]; then LIBUSB_COPYING="$c"; break; fi
     done
     [ -n "$LIBUSB_COPYING" ] || { echo "libusb is bundled but its LGPL text was not found (brew install libusb, or libusb-1.0-0 on Linux)"; exit 1; }

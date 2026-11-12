@@ -19,8 +19,16 @@ package app.studiopocket.player.ui
  * playlist; back returns to the groups screen on the same square. Each group remembers its
  * position while its key is still there.
  *
- * Player: centre/play toggles, arrows skip tracks, back returns to the cover flow it came from
- * while playback continues.
+ * Player: the arrow buttons skip tracks, stopping at the first and last. The ring only browses: it
+ * moves a cursor over the playlist's tracks (stopping at either end) and the screen shows that
+ * track; centre plays it. Centre with nothing browsed toggles pause. A browse ends when centre picks
+ * the track, an arrow skips, back is pressed, or the activity's idle timeout calls [endBrowse]; the
+ * screen then shows the playing track again. Back with no browse returns to the cover flow it came
+ * from while playback continues. Turning the ring is too easy to do by accident for it to change
+ * what is playing.
+ *
+ * Back pressed twice quickly on the groups screen or a cover flow jumps to Now Playing ([BackDouble],
+ * [showPlayer]) when something is playing or paused.
  *
  * Settings (opened by holding Back on the root screen, see [BackHold]) is driven by its own
  * controller; the nav only passes play/pause through so playback stays controllable. Diagnostics
@@ -43,6 +51,8 @@ class PlayerNav(playlistCount: Int) {
         object TogglePause : Action()
         object NextTrack : Action()
         object PreviousTrack : Action()
+        /** Play track [index] of the loaded playlist: centre after browsing to it with the ring. */
+        data class PlayTrack(val index: Int) : Action()
         object Redraw : Action()
     }
 
@@ -53,6 +63,8 @@ class PlayerNav(playlistCount: Int) {
     var group = 0; private set
     /** Position in the open cover flow. */
     var selected = 0; private set
+    /** On the player screen: the track the ring has browsed to, or null when it shows the playing track. */
+    var browsing: Int? = null; private set
     private val positions = HashMap<String, Int>()
 
     init {
@@ -93,11 +105,21 @@ class PlayerNav(playlistCount: Int) {
         selected = (positions[groups[group].key] ?: 0).coerceIn(0, maxOf(0, itemCount - 1))
     }
 
-    /** [hasPlayback]: a playlist is loaded (playing or paused), so the play/pause button toggles it in place. */
-    fun onKey(keyName: String, hasPlayback: Boolean = false): Action =
-        if (hasPlayback && keyName in MEDIA_KEYS) Action.TogglePause else navigate(keyName)
+    /**
+     * [hasPlayback]: a playlist is loaded (playing or paused), so the play/pause button toggles it in place.
+     * [playingTrack] and [trackCount] describe the loaded playlist, for browsing it with the ring.
+     */
+    fun onKey(keyName: String, hasPlayback: Boolean = false, playingTrack: Int = 0, trackCount: Int = 0): Action =
+        if (hasPlayback && keyName in MEDIA_KEYS) Action.TogglePause else navigate(keyName, playingTrack, trackCount)
 
-    private fun navigate(keyName: String): Action = when (screen) {
+    /** Ends a browse (the idle timeout); true when the screen has to go back to the playing track. */
+    fun endBrowse(): Boolean {
+        if (browsing == null) return false
+        browsing = null
+        return true
+    }
+
+    private fun navigate(keyName: String, playingTrack: Int, trackCount: Int): Action = when (screen) {
         Screen.GROUPS -> when (keyName) {
             "KEYCODE_DPAD_UP", "KEYCODE_DPAD_LEFT" -> moveGroup(-1)
             "KEYCODE_DPAD_DOWN", "KEYCODE_DPAD_RIGHT" -> moveGroup(1)
@@ -108,15 +130,22 @@ class PlayerNav(playlistCount: Int) {
             "KEYCODE_DPAD_UP", "KEYCODE_DPAD_LEFT" -> moveSelection(-1)
             "KEYCODE_DPAD_DOWN", "KEYCODE_DPAD_RIGHT" -> moveSelection(1)
             "KEYCODE_DPAD_CENTER", "KEYCODE_ENTER", "KEYCODE_MEDIA_PLAY_PAUSE", "KEYCODE_MEDIA_PLAY", "KEYCODE_HEADSETHOOK" ->
-                if (groups[group].size == 0) Action.None else { screen = Screen.PLAYER; Action.PlaySelected(selected) }
+                if (groups[group].size == 0) Action.None else { screen = Screen.PLAYER; browsing = null; Action.PlaySelected(selected) }
             "KEYCODE_BACK" -> if (flat) Action.None else { leaveCoverFlow(); Action.BackToGroups }
             else -> Action.None
         }
         Screen.PLAYER -> when (keyName) {
-            "KEYCODE_DPAD_CENTER", "KEYCODE_ENTER", "KEYCODE_MEDIA_PLAY_PAUSE", "KEYCODE_MEDIA_PLAY", "KEYCODE_MEDIA_PAUSE", "KEYCODE_HEADSETHOOK" -> Action.TogglePause
-            "KEYCODE_DPAD_RIGHT", "KEYCODE_DPAD_DOWN", "KEYCODE_MEDIA_NEXT" -> Action.NextTrack
-            "KEYCODE_DPAD_LEFT", "KEYCODE_DPAD_UP", "KEYCODE_MEDIA_PREVIOUS" -> Action.PreviousTrack
-            "KEYCODE_BACK" -> { screen = Screen.HOME; Action.Redraw }
+            "KEYCODE_DPAD_CENTER", "KEYCODE_ENTER" -> {
+                val picked = browsing
+                browsing = null
+                if (picked != null && picked != playingTrack) Action.PlayTrack(picked) else Action.TogglePause
+            }
+            "KEYCODE_MEDIA_PLAY_PAUSE", "KEYCODE_MEDIA_PLAY", "KEYCODE_MEDIA_PAUSE", "KEYCODE_HEADSETHOOK" -> Action.TogglePause
+            "KEYCODE_DPAD_UP" -> browse(-1, playingTrack, trackCount)
+            "KEYCODE_DPAD_DOWN" -> browse(1, playingTrack, trackCount)
+            "KEYCODE_DPAD_RIGHT", "KEYCODE_MEDIA_NEXT" -> { browsing = null; Action.NextTrack }
+            "KEYCODE_DPAD_LEFT", "KEYCODE_MEDIA_PREVIOUS" -> { browsing = null; Action.PreviousTrack }
+            "KEYCODE_BACK" -> if (browsing != null) { browsing = null; Action.Redraw } else { screen = Screen.HOME; Action.Redraw }
             else -> Action.None
         }
         Screen.SETTINGS -> when (keyName) {
@@ -136,8 +165,25 @@ class PlayerNav(playlistCount: Int) {
 
     /** Home for this mode: the groups screen, or the flat cover flow. Used when storage goes away and when settings closes. */
     fun showRoot() {
+        browsing = null
         if (flat) { screen = Screen.HOME; return }
         if (screen == Screen.HOME) leaveCoverFlow() else screen = Screen.GROUPS
+    }
+
+    /**
+     * Straight to Now Playing (Back pressed twice), from the groups screen or a cover flow, with
+     * cover flow [group] open on playlist [index] behind it, so Back from Now Playing lands there.
+     * False, and nothing changes, from anywhere else or for a group or index that does not exist.
+     */
+    fun showPlayer(group: Int, index: Int): Boolean {
+        if (screen != Screen.GROUPS && screen != Screen.HOME) return false
+        if (group !in groups.indices || index !in 0 until groups[group].size) return false
+        if (screen == Screen.HOME) positions[groups[this.group].key] = selected
+        this.group = group
+        selected = index
+        browsing = null
+        screen = Screen.PLAYER
+        return true
     }
 
     fun openSettings() { if (isRoot) screen = Screen.SETTINGS }
@@ -163,6 +209,17 @@ class PlayerNav(playlistCount: Int) {
         val target = (group + delta).coerceIn(0, groups.size - 1)
         if (target == group) return Action.None
         group = target
+        return Action.Redraw
+    }
+
+    /** Moves the browse cursor from where it is (the playing track to start with), stopping at either end. */
+    private fun browse(delta: Int, playingTrack: Int, trackCount: Int): Action {
+        if (trackCount <= 0) return Action.None
+        val from = browsing ?: playingTrack.coerceIn(0, trackCount - 1)
+        val target = (from + delta).coerceIn(0, trackCount - 1)
+        if (target == from) return Action.None
+        // Back on the playing track is no browse at all: the screen shows it as playing again.
+        browsing = if (target == playingTrack) null else target
         return Action.Redraw
     }
 

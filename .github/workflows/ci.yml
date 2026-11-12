@@ -78,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest, macos-15-intel, windows-latest]   # macos-15-intel: the Intel Mac bundle
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults: { run: { shell: bash } }
@@ -91,12 +91,15 @@ jobs:
         with: { node-version: 22 }
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with: { python-version: '3.12' }
+      # The pinned libusb, built for macOS 11 and later (Homebrew's needs the runner's macOS).
       - if: runner.os == 'macOS'
-        run: brew install libusb   # bundled by PyInstaller; its LGPL text is copied into licences/
+        name: libusb (scripts/libusb-pin.json, macOS 11+)
+        run: OUT_DIR=build/libusb scripts/build-libusb-macos.sh
       - name: mtkclient bundle (sets up the locked venv first)
         env:
           # python3 can resolve to the Microsoft Store stub on Windows; elsewhere the script picks python3.
           PYTHON: ${{ runner.os == 'Windows' && 'python' || '' }}
+          LIBUSB_DIR: ${{ runner.os == 'macOS' && 'build/libusb' || '' }}
         run: OUT_DIR="$MTK_BUNDLE_DIR" scripts/build-mtkclient.sh
       - name: mtkclient release gate (runs the bundled mtk as the capability probe)
         run: node scripts/check-mtkclient-bundle.mjs
