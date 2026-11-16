@@ -8,11 +8,11 @@ Anything not listed under "Results" has not been tested on hardware.
 | | |
 |---|---|
 | Player | Innioasis Y2 (one unit): Samsung eMMC, 7.82 GB user area, 1 GiB RAM |
-| Stock firmware | 3.2.0 with the FM Radio app: `3.2.0-fm`, build `1786599642`. Settings → About shows 3.2.0 but no build number; the FM Radio app is what tells this build apart |
+| Stock firmware | 3.2.0 with the FM Radio app: `3.2.0-fm`, build `1786599642`. Settings → About shows 3.2.0 but no build number; the FM Radio app is what tells this build apart. From 2026-11-16 the player carried stock 3.2.4 (build `1787108138`) |
 | Computer | macOS 15 (Darwin 24.6), USB data cable |
 | mtkclient | 2.1.4 at commit `7cb40e7` with the patches in `scripts/patch-mtkclient.py`, over the preloader's serial port (`--serialport DETECT`); both the patched venv and the standalone bundle |
 | e2fsprogs | 1.47 (`scripts/build-e2fsprogs.sh` builds 1.47.4) |
-| Studio Pocket player | 0.4.x for the October runs; 0.6.0 for the early November runs; release-key-signed test builds of 0.7.0 and 0.8.0 from 2026-11-09 |
+| Studio Pocket player | 0.4.x for the October runs; 0.6.0 for the early November runs; release-key-signed test builds of 0.7.0 and 0.8.0 from 2026-11-09; the 0.8.0 release APK on 2026-11-16 |
 
 ## Results
 
@@ -43,6 +43,7 @@ All passed unless the row says otherwise.
 | 2026-11-05 | `read-device`, `prepare-device`, `write --action install`, then `write --action restore`, with an mtkclient bundle holding no download agent, preloader or WinFsp file | No preloader was asked for (no "DRAM config needed"); both writes verified; Studio Pocket, then stock, booted |
 | 2026-11-05 | `studio-pocket-sync` into an existing library | The new playlist appeared and played after unplugging; the playlists already on the player were untouched |
 | 2026-11-11 | `prepare-upgrade`, then `write --action upgrade`, with a release-key-signed test build of the 0.8.0 player | Upgraded in place; the 0.8.0 player features (play modes, cover progress, scrubbing, the clock, Settings > Date & time and Sound, the volume display) worked |
+| 2026-11-16 | `read-device`, `prepare-device`, `write --action install` on a player running stock **3.2.4**, with the 0.8.0 release APK and the release's tool bundles | `MATCH` for 3.2.4, `WRITE VERIFIED`, Studio Pocket 0.8.0 booted and worked |
 
 ## Not tested
 
@@ -53,10 +54,6 @@ All passed unless the row says otherwise.
 - Restoring a player after an upgrade.
 - Stock firmware **3.2.1** (build `1786709305`): the installer knows it, but no tested player
   carried it.
-- Stock firmware **3.2.4** (build `1787108138`): known from a read-only read a user shared from their
-  own player. Offline, that read is identified as 3.2.4 with no problems, and `patch` plus `verify` on it
-  pass (`e2fsck -fn` clean, APK read back, SELinux label present). Nothing has been written to a 3.2.4
-  player, and no 3.2.4 player has booted Studio Pocket.
 - More than one player, or a player whose partition layout differs from this one.
 - Interrupting a write to the player. Only the sync copy has been interrupted on hardware.
 - The player 0.6.0 settings screens on hardware: the Bluetooth page, volume cap, sleep timer,
