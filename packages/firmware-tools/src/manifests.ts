@@ -6,10 +6,11 @@
 import { parseManifest, type FirmwareManifest } from './manifest.js';
 import stock321 from './manifests/y2-stock-3.2.1.json' with { type: 'json' };
 import stock320fm from './manifests/y2-stock-3.2.0-fm.json' with { type: 'json' };
+import stock324 from './manifests/y2-stock-3.2.4.json' with { type: 'json' };
 
 /** The stock builds Studio Pocket can identify: hashes and partition maps, checked by parseManifest. */
 export function bundledManifests(): FirmwareManifest[] {
-    return [stock321, stock320fm].map((m) => parseManifest(JSON.stringify(m)));
+    return [stock321, stock320fm, stock324].map((m) => parseManifest(JSON.stringify(m)));
 }
 
 export function bundledManifest(firmwareVersion: string): FirmwareManifest {

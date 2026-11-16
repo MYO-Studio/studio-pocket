@@ -11,7 +11,7 @@ import { EXT4_MAGIC } from '../src/ext4.js';
 import { findSystemFs, LayoutError, measureLayout, readLayout, windowForManifest, writeLayout } from '../src/layout.js';
 import { loadManifest, nodePlatform } from '../src/node.js';
 
-const manifests = ['y2-stock-3.2.1.json', 'y2-stock-3.2.0-fm.json'].map((n) => new URL(`../src/manifests/${n}`, import.meta.url).pathname);
+const manifests = ['y2-stock-3.2.1.json', 'y2-stock-3.2.0-fm.json', 'y2-stock-3.2.4.json'].map((n) => new URL(`../src/manifests/${n}`, import.meta.url).pathname);
 
 /** A fake ext4 superblock region (only the fields the parser reads) for `blocks` 4 KiB blocks. */
 function superblock(blocks: number, uuid: string, mountCount = 0): Buffer {

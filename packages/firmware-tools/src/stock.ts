@@ -36,6 +36,9 @@ export interface StockProgress {
  * extracted into `<workDir>/stock`) or a directory already holding them.
  */
 export async function prepareStock(p: FirmwarePlatform, source: string, manifest: FirmwareManifest, workDir: string, log: (line: string) => void = () => undefined, onProgress?: (e: StockProgress) => void): Promise<StockInputs> {
+    if (!manifest.source) {
+        throw new StockError(`firmware ${manifest.firmwareVersion} has no published package to check against; read the player itself instead (read-device)`);
+    }
     const info = await p.stat(source);
     if (!info.exists) throw new StockError(`${source} does not exist`);
     let dir = source;
@@ -86,6 +89,6 @@ export async function identifyStock(p: FirmwarePlatform, source: string, manifes
         return manifest ? { manifest, sha256, kind: 'dir' } : null;
     }
     const sha256 = await p.sha256File(source, (b) => onProgress?.(b, info.size));
-    const manifest = manifests.find((m) => m.source.sha256 === sha256);
+    const manifest = manifests.find((m) => m.source?.sha256 === sha256);
     return manifest ? { manifest, sha256, kind: 'zip' } : null;
 }

@@ -20,7 +20,9 @@ describe('every committed firmware manifest', () => {
             expect(name).toBe(`y2-stock-${m.firmwareVersion}.json`);
             const t = targetPartition(m);
             expect([t.name, t.index, t.physicalStart, t.size]).toEqual(['ANDROID', 16, '0x5180000', '0x33400000']);
-            for (const h of [m.source.sha256, m.files['system.img']!.sha256]) { expect(seen.has(h)).toBe(false); seen.add(h); }
+            // A build with no published package is identified by its launcher alone, so that hash must be distinct too.
+            const hashes = m.source ? [m.source.sha256, m.files['system.img']!.sha256] : [m.stockLauncher.sha256!];
+            for (const h of hashes) { expect(seen.has(h)).toBe(false); seen.add(h); }
         }
     });
 });
