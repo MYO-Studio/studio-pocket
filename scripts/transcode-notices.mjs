@@ -99,7 +99,9 @@ for (const pkg of [...linked].map((id) => packages.get(id)).sort((a, b) => a.nam
     if (pkg.name === 'mp3lame-sys') {
         // The crate's own LICENSE is the LGPL-3.0 text; the bundle carries the vendored copy of it.
         const own = path.join(dir, 'LICENSE');
-        if (!existsSync(own) || !readFileSync(own).equals(readFileSync(path.join(vendored, 'LGPL-3.0.txt')))) {
+        // Compared as text with line endings set aside: on Windows the vendored copy is checked out with CRLF.
+        const text = (file) => readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+        if (!existsSync(own) || text(own) !== text(path.join(vendored, 'LGPL-3.0.txt'))) {
             problems.push(`${own} is not the LGPL-3.0 text in scripts/licences/LGPL-3.0.txt`);
         }
         notices = [copy(path.join(vendored, 'LGPL-3.0.txt'), 'LGPL-3.0.txt', 'GNU LESSER GENERAL PUBLIC LICENSE'), 'GPL-3.0.txt'];

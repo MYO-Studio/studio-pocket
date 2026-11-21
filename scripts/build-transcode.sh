@@ -44,6 +44,10 @@ case "$(uname -s)" in
 esac
 if [ -d "$ROOT/apps/desktop/src-tauri" ]; then DEFAULT_OUT="$ROOT/apps/desktop/src-tauri/resources/transcode/$OS"; else DEFAULT_OUT="$ROOT/build/transcode/$OS"; fi
 OUT="${OUT_DIR:-$DEFAULT_OUT}"
+# A relative OUT_DIR is relative to where the script was called from, not to the crate's folder
+# that the build runs in. And cargo must not see the name: it has its own meaning there.
+case "$OUT" in /*|[A-Za-z]:[/\\]*) ;; *) OUT="$PWD/$OUT" ;; esac
+unset OUT_DIR
 # OUT is replaced wholesale: never let a mistyped OUT_DIR point at /, $HOME or the repo.
 case "$(cd "$OUT" 2>/dev/null && pwd -P)" in
   /|"$(cd "$HOME" && pwd -P)"|"$(cd "$ROOT" && pwd -P)") echo "refusing to replace OUT_DIR=$OUT"; exit 1 ;;
