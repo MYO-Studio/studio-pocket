@@ -228,7 +228,8 @@ impl<R: Read> OggOpusDecoder<R> {
                     }
                     Some(_) => {}
                     // The file ends on a page boundary without the stream's last page having been
-                    // marked. Some writers leave the mark out, so what was read is the audio.
+                    // marked. Nothing tells that from a file whose writer left the mark out, so
+                    // what was read is the audio.
                     None => {
                         self.ended = true;
                         return Ok(None);
