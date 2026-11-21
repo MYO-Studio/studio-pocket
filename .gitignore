@@ -11,6 +11,9 @@ keystore.properties
 *.jks
 *.keystore
 
+# Rust build output (tools/transcode)
+target/
+
 # Firmware images and proprietary inputs are never committed.
 # See docs/licensing/third-party.md and firmware/README.md.
 firmware/stock/

@@ -1,0 +1,23 @@
+[package]
+name = "studio-pocket-transcode"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+description = "Converts one Ogg Opus file to a 128 kbps MP3 for the Studio Pocket player"
+repository = "https://github.com/MYO-Studio/studio-pocket"
+publish = false
+
+# Exact versions: the two -sys crates carry the C source that is compiled in (libopus in
+# opusic-sys, LAME in mp3lame-sys), so the crate version names the source. Cargo.lock pins their
+# checksums; scripts/build-transcode.sh builds with --locked and records them in BUNDLE-INFO.json,
+# and each release attaches the mp3lame-sys crate file as LAME's corresponding source (LGPL).
+[dependencies]
+ogg = "=0.9.2"
+opusic-sys = { version = "=0.7.7", default-features = false, features = ["bundled"] }
+mp3lame-sys = "=0.2.0"
+
+# rustc strips nothing: scripts/build-transcode.sh does it, with the system's strip.
+[profile.release]
+opt-level = 3
+strip = "none"
