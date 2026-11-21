@@ -19,8 +19,9 @@ This repository holds everything needed to do that yourself:
 | `packages/firmware-tools/` | The installer engine and the `studio-pocket-firmware` command: reads the player's own system partition, patches the player in, writes it back and verifies it, and restores the original |
 | `packages/library-format/` | The folder layout and file formats the player reads from its storage |
 | `packages/sync-engine/` | Copies playlists onto the player safely, and the `studio-pocket-sync` command |
+| `tools/transcode/` | `studio-pocket-transcode`: converts an Ogg Opus file to MP3, which the player can decode |
 | `firmware/` | Patch recipes and notes (no firmware: none is ever committed here) |
-| `scripts/` | Build scripts for the player and for the two tools the installer runs (mtkclient and e2fsprogs) |
+| `scripts/` | Build scripts for the player, for the two tools the installer runs (mtkclient and e2fsprogs) and for the transcoder |
 | `docs/` | How it works, what has been tested on hardware, recovery and licensing |
 
 Start with [docs/architecture/overview.md](docs/architecture/overview.md) for how the parts fit
@@ -41,6 +42,7 @@ a project for people comfortable with a terminal.
   (`xcode-select --install`); on Linux, your distribution's build tools (for example
   `build-essential`).
 - To build mtkclient: Python 3.12.
+- To build the transcoder: Rust 1.85 or later (with cargo) and CMake.
 - An Innioasis Y2 and a USB **data** cable (charge-only cables are the most common reason a player
   is not found).
 
@@ -72,9 +74,21 @@ scripts/setup-mtkclient-venv.sh                  # mtkclient at a pinned commit,
 scripts/build-e2fsprogs.sh                       # debugfs, e2fsck, dumpe2fs 1.47.4 from a hash-checked tarball
 ```
 
-The build scripts write to `build/player/`, `build/e2fsprogs/<os>/` and `build/mtkclient/`; set
-`OUT_DIR` to put the output somewhere else, and then point `STUDIO_POCKET_E2FS_DIR` at the e2fsprogs
-folder.
+The transcoder. The player decodes MP3 and AAC but not Opus (Android 4.4 has no decoder for it), and
+`studio-pocket-sync` refuses files the player could not play. `studio-pocket-transcode` converts one
+Ogg Opus file, mono or stereo, to a 128 kbps MP3:
+
+```bash
+scripts/build-transcode.sh                       # its tests, then build/transcode/<os>/studio-pocket-transcode
+build/transcode/macos/studio-pocket-transcode chapter.opus chapter.mp3
+```
+
+It is a separate program, with LAME and libopus built in from source; how it reports progress and
+what its exit codes mean is in [docs/architecture/overview.md](docs/architecture/overview.md).
+
+The build scripts write to `build/player/`, `build/e2fsprogs/<os>/`, `build/mtkclient/` and
+`build/transcode/<os>/`; set `OUT_DIR` to put the output somewhere else, and then point
+`STUDIO_POCKET_E2FS_DIR` at the e2fsprogs folder.
 
 `studio-pocket-firmware` finds the mtkclient set up by the first command, and the e2fsprogs in
 `build/e2fsprogs/<os>/`, by itself. Instead of building e2fsprogs you can install your system's copy
@@ -85,8 +99,9 @@ folder.
 
 Each release on GitHub carries a signed player APK (`StudioPocket-<version>.apk`), ready-built tools
 (`e2fsprogs-macos-universal.tar.gz`, `e2fsprogs-linux-x64.tar.gz`, `mtkclient-macos-arm64.tar.gz` for
-Apple silicon Macs, `mtkclient-macos-x64.tar.gz` for Intel Macs; both run on macOS 11 and later)
-and `SHA256SUMS`. You still need this repository, built as above (`pnpm install`, `pnpm -r build`),
+Apple silicon Macs, `mtkclient-macos-x64.tar.gz` for Intel Macs; both run on macOS 11 and later),
+the transcoder (`transcode-macos-universal.tar.gz`, `transcode-linux-x64.tar.gz`,
+`transcode-windows-x64.tar.gz`) and `SHA256SUMS`. You still need this repository, built as above (`pnpm install`, `pnpm -r build`),
 for the `studio-pocket-firmware` and `studio-pocket-sync` commands; the release replaces building the player and
 the tools.
 
