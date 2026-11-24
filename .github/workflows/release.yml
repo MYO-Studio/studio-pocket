@@ -417,7 +417,10 @@ jobs:
           out="dist/mp3lame-sys-$version-source.tar.gz"
           curl -fsSL --retry 2 -o "$out" "https://static.crates.io/crates/mp3lame-sys/mp3lame-sys-$version.crate"
           echo "$sha256  $out" | sha256sum -c -
-          tar -tzf "$out" | grep -q "^mp3lame-sys-$version/lame-[^/]*/libmp3lame/lame.c$" || { echo "$out holds no LAME source"; exit 1; }
+          # The listing goes to a file first: grep -q stops at the first match, and under pipefail
+          # the write error tar then gets would fail the check.
+          tar -tzf "$out" > "$RUNNER_TEMP/mp3lame-sys-files"
+          grep -q "^mp3lame-sys-$version/lame-[^/]*/libmp3lame/lame.c$" "$RUNNER_TEMP/mp3lame-sys-files" || { echo "$out holds no LAME source"; exit 1; }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: source
