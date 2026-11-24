@@ -64,7 +64,7 @@ export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.13}"  # Tauri's 
 
 echo "== fetching e2fsprogs $VERSION"
 mkdir -p "$WORK"
-[ -f "$TARBALL" ] || { curl -fsSL -o "$TARBALL.part" "$URL" && mv "$TARBALL.part" "$TARBALL"; }
+[ -f "$TARBALL" ] || { curl -fsSL --retry 3 --retry-all-errors -o "$TARBALL.part" "$URL" && mv "$TARBALL.part" "$TARBALL"; }
 GOT=$( (shasum -a 256 "$TARBALL" 2>/dev/null || sha256sum "$TARBALL") | awk '{print $1}')
 [ "$GOT" = "$SHA256" ] || { echo "SHA-256 mismatch for $TARBALL: expected $SHA256, got $GOT"; rm -f "$TARBALL"; exit 1; }
 echo "sha256 ok: $GOT"
