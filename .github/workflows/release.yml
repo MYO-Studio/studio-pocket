@@ -5,11 +5,13 @@
 #   tarballs  studio-pocket-<pkg>-<v>.tgz for every packages/* (pnpm pack, after the tests pass; the
 #             desktop pins them by URL), each with LICENSE and COPYING.commercial
 #   tools     e2fsprogs-{macos-universal,linux-x64,windows-x64}.tar.gz, mtkclient-{macos-arm64,macos-x64,windows-x64}.tar.gz,
+#             transcode-{macos-universal,linux-x64,windows-x64}.tar.gz,
 #             e2fsprogs-cygwin-src.tar.gz, and an SPDX SBOM (sbom-<file>.spdx.json) per bundle; all unsigned
 #   source    mtkclient-source.tar.gz (upstream's archive less the files no bundle ships: WinFsp's DLLs and
 #             mtkclient/Loader/, MediaTek's download agents and the OEM preloaders; with SOURCE-INFO.txt),
-#             the upstream e2fsprogs-<version>.tar.gz (GPL corresponding source)
-#             and libusb-<version>-source.tar.bz2 (LGPL source of the libusb in the macOS mtkclient bundle)
+#             the upstream e2fsprogs-<version>.tar.gz (GPL corresponding source),
+#             libusb-<version>-source.tar.bz2 (LGPL source of the libusb in the macOS mtkclient bundle)
+#             and mp3lame-sys-<version>-source.tar.gz (LGPL source of the LAME in the transcode bundles)
 #   player    StudioPocket-<versionName>.apk and player.json, signed with the release key
 #   publish   SHA256SUMS over every file, then the draft pre-release with RELEASE-NOTES.md as its text
 #
@@ -93,12 +95,12 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - { os: macos-latest, bundle: macos, arch: arm64, e2fs_asset: e2fsprogs-macos-universal, mtk_asset: mtkclient-macos-arm64 }
-          # Intel Macs: mtkclient only (the e2fsprogs bundle above is universal). macos-15-intel is
+          - { os: macos-latest, bundle: macos, arch: arm64, e2fs_asset: e2fsprogs-macos-universal, mtk_asset: mtkclient-macos-arm64, transcode_asset: transcode-macos-universal }
+          # Intel Macs: mtkclient only (the e2fsprogs and transcode bundles above are universal). macos-15-intel is
           # GitHub's last x86_64 macOS image; PyInstaller cannot cross-build, so the bundle needs one.
-          - { os: macos-15-intel, bundle: macos-x64, arch: x86_64, e2fs_asset: '', mtk_asset: mtkclient-macos-x64 }
-          - { os: ubuntu-latest, bundle: linux, arch: x86_64, e2fs_asset: e2fsprogs-linux-x64, mtk_asset: '' }
-          - { os: windows-latest, bundle: windows, arch: x86_64, e2fs_asset: e2fsprogs-windows-x64, mtk_asset: mtkclient-windows-x64 }
+          - { os: macos-15-intel, bundle: macos-x64, arch: x86_64, e2fs_asset: '', mtk_asset: mtkclient-macos-x64, transcode_asset: '' }
+          - { os: ubuntu-latest, bundle: linux, arch: x86_64, e2fs_asset: e2fsprogs-linux-x64, mtk_asset: '', transcode_asset: transcode-linux-x64 }
+          - { os: windows-latest, bundle: windows, arch: x86_64, e2fs_asset: e2fsprogs-windows-x64, mtk_asset: mtkclient-windows-x64, transcode_asset: transcode-windows-x64 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults: { run: { shell: bash } }
@@ -106,8 +108,10 @@ jobs:
       E2FS_BUNDLE_DIR: build/e2fsprogs/${{ matrix.bundle }}
       MTK_BUNDLE_DIR: build/mtkclient
       LIBUSB_BUILD_DIR: build/libusb
+      TRANSCODE_BUNDLE_DIR: build/transcode/${{ matrix.bundle }}
       E2FS_ASSET: ${{ matrix.e2fs_asset }}
       MTK_ASSET: ${{ matrix.mtk_asset }}
+      TRANSCODE_ASSET: ${{ matrix.transcode_asset }}
       ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -207,6 +211,20 @@ jobs:
           [ "$bundled" = "$pinned" ] || { echo "::error::the bundle carries libusb $bundled but scripts/libusb-pin.json pins $pinned (update the pin's version and sha256)"; exit 1; }
           echo "libusb $bundled"
 
+      # studio-pocket-transcode (tools/transcode): built with the runner's own Rust and CMake from the
+      # crates Cargo.lock pins, with LAME and libopus compiled from the source in theirs and linked
+      # statically. build-transcode.sh runs the crate's tests first (a tag on a commit CI never saw
+      # does not release), then checks the linked libraries and smoke-tests the binary. The macOS
+      # binary is universal, so that runner needs the Intel target as well as its own.
+      - if: runner.os == 'macOS' && matrix.transcode_asset != ''
+        name: Rust target for the Intel half of the universal transcode binary
+        run: rustup target add x86_64-apple-darwin
+      - if: matrix.transcode_asset != ''
+        name: transcode bundle
+        run: OUT_DIR="$TRANSCODE_BUNDLE_DIR" scripts/build-transcode.sh
+      - if: matrix.transcode_asset != ''
+        run: cat "$TRANSCODE_BUNDLE_DIR/BUNDLE-INFO.json"
+
       # Archives: each bundle's contents at the archive root, with its licences/ folder (the licence
       # texts the build scripts copy in and the gates check) and BUNDLE-INFO.json.
       - name: Archive the bundles
@@ -227,6 +245,14 @@ jobs:
               [ "$(lipo -archs "$MTK_BUNDLE_DIR/mtk")" = "$ARCH" ] || { echo "$MTK_BUNDLE_DIR/mtk is $(lipo -archs "$MTK_BUNDLE_DIR/mtk"), expected $ARCH"; exit 1; }
             fi
             pack "$MTK_BUNDLE_DIR" "$MTK_ASSET"
+          fi
+          if [ -n "$TRANSCODE_ASSET" ]; then
+            # The asset name states the architecture; make sure the bundle was built for it.
+            case "$TRANSCODE_ASSET" in *-universal) want="arm64 x86_64" ;; *) want="x86_64" ;; esac
+            grep -q "\"archs\": \"$want\"" "$TRANSCODE_BUNDLE_DIR/BUNDLE-INFO.json" || { echo "$TRANSCODE_BUNDLE_DIR is not built for $want: $(grep '"archs"' "$TRANSCODE_BUNDLE_DIR/BUNDLE-INFO.json")"; exit 1; }
+            # LAME is LGPL and linked in, so the bundle must carry its licence text.
+            grep -q "GNU LIBRARY GENERAL PUBLIC LICENSE" "$TRANSCODE_BUNDLE_DIR/licences/lame/COPYING" || { echo "$TRANSCODE_BUNDLE_DIR/licences/lame/COPYING is missing"; exit 1; }
+            pack "$TRANSCODE_BUNDLE_DIR" "$TRANSCODE_ASSET"
           fi
           # The Windows e2fsprogs bundle carries cygwin1.dll, so it must carry the LGPL-3.0 text.
           if [ "$RUNNER_OS" = Windows ] && ! grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$E2FS_BUNDLE_DIR/licences/LGPL-3.0.txt"; then
@@ -249,6 +275,15 @@ jobs:
           path: ${{ env.MTK_BUNDLE_DIR }}
           format: spdx-json
           output-file: dist/sbom-${{ matrix.mtk_asset }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - if: matrix.transcode_asset != ''
+        name: SBOM for the transcode bundle
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: ${{ env.TRANSCODE_BUNDLE_DIR }}
+          format: spdx-json
+          output-file: dist/sbom-${{ matrix.transcode_asset }}.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -366,6 +401,23 @@ jobs:
           out="dist/libusb-$version-source.tar.bz2"
           curl -fsSL --retry 2 -o "$out" "https://github.com/libusb/libusb/releases/download/v$version/libusb-$version.tar.bz2"
           echo "$sha256  $out" | sha256sum -c -
+      # LAME (LGPL-2.0-or-later, linked statically into studio-pocket-transcode): the mp3lame-sys crate
+      # file, which holds the LAME source that is compiled (lame-<version>/libmp3lame, upstream's
+      # release unmodified), the build script and the configuration header it is compiled with. It
+      # is fetched from crates.io and checked against the checksum in tools/transcode/Cargo.lock,
+      # which is what every transcode bundle was built from (cargo --locked). A crate file is a
+      # gzipped tar archive.
+      - name: mp3lame-sys crate (LAME's source)
+        run: |
+          set -euo pipefail
+          lock=tools/transcode/Cargo.lock
+          version="$(awk '/^name = "mp3lame-sys"$/ { getline; gsub(/version = |"/, ""); print; exit }' "$lock")"
+          sha256="$(awk '/^name = "mp3lame-sys"$/ { f = 1 } f && /^checksum = / { gsub(/checksum = |"/, ""); print; exit }' "$lock")"
+          [ -n "$version" ] && [ -n "$sha256" ] || { echo "no mp3lame-sys version and checksum in $lock"; exit 1; }
+          out="dist/mp3lame-sys-$version-source.tar.gz"
+          curl -fsSL --retry 2 -o "$out" "https://static.crates.io/crates/mp3lame-sys/mp3lame-sys-$version.crate"
+          echo "$sha256  $out" | sha256sum -c -
+          tar -tzf "$out" | grep -q "^mp3lame-sys-$version/lame-[^/]*/libmp3lame/lame.c$" || { echo "$out holds no LAME source"; exit 1; }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: source
@@ -480,9 +532,12 @@ jobs:
               mtkclient-macos-arm64.tar.gz mtkclient-macos-x64.tar.gz mtkclient-windows-x64.tar.gz mtkclient-source.tar.gz \
               e2fsprogs-macos-universal.tar.gz e2fsprogs-linux-x64.tar.gz e2fsprogs-windows-x64.tar.gz \
               e2fsprogs-cygwin-src.tar.gz 'e2fsprogs-[0-9]*.tar.gz' 'libusb-*-source.tar.bz2' \
+              transcode-macos-universal.tar.gz transcode-linux-x64.tar.gz transcode-windows-x64.tar.gz \
+              'mp3lame-sys-*-source.tar.gz' \
               sbom-e2fsprogs-macos-universal.spdx.json sbom-e2fsprogs-linux-x64.spdx.json \
               sbom-e2fsprogs-windows-x64.spdx.json sbom-mtkclient-macos-arm64.spdx.json sbom-mtkclient-macos-x64.spdx.json \
-              sbom-mtkclient-windows-x64.spdx.json; do
+              sbom-mtkclient-windows-x64.spdx.json sbom-transcode-macos-universal.spdx.json \
+              sbom-transcode-linux-x64.spdx.json sbom-transcode-windows-x64.spdx.json; do
             # shellcheck disable=SC2206 # the pattern is meant to glob
             matches=($pattern)
             [ "${#matches[@]}" -gt 0 ] || { echo "missing: $pattern"; missing=1; }

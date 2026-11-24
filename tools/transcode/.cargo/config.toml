@@ -1,0 +1,11 @@
+# Read by cargo when it is run from tools/transcode (scripts/build-transcode.sh and CI do that).
+
+# The bundled macOS program runs on macOS 11 and later, as the other bundled tools do. This reaches
+# rustc, the cc crate (LAME) and CMake (libopus). A MACOSX_DEPLOYMENT_TARGET already in the
+# environment wins.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "11.0"
+
+# Windows: link the C runtime statically, so the program needs no Visual C++ redistributable.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

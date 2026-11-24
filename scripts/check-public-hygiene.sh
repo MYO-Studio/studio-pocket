@@ -6,6 +6,8 @@
 
 # Public CI hygiene check: fails on a forbidden file name, a file over 5 MB, or a secret (gitleaks).
 # Usage: scripts/check-public-hygiene.sh <dir>
+# Names and sizes are not checked in node_modules or in cargo's build output (tools/transcode/target/,
+# ignored by git): a local build leaves work-products.bin files and large libraries there.
 set -uo pipefail
 DIR="${1:?dir}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -13,12 +15,12 @@ fail=0
 
 while IFS= read -r pattern; do
   [ -z "$pattern" ] && continue
-  if found="$(find "$DIR" -name "$pattern" -not -path '*/node_modules/*' -not -path '*/.github/workflows' 2>/dev/null)" && [ -n "$found" ]; then
+  if found="$(find "$DIR" -name "$pattern" -not -path '*/node_modules/*' -not -path '*/tools/transcode/target/*' -not -path '*/.github/workflows' 2>/dev/null)" && [ -n "$found" ]; then
     echo "forbidden name ($pattern):"; echo "$found" | sed 's/^/  /'; fail=1
   fi
 done < "$HERE/forbidden-paths.txt"
 
-big="$(find "$DIR" -type f -size +5M -not -path '*/node_modules/*')"
+big="$(find "$DIR" -type f -size +5M -not -path '*/node_modules/*' -not -path '*/tools/transcode/target/*')"
 if [ -n "$big" ]; then echo "files over 5 MB:"; echo "$big" | sed 's/^/  /'; fail=1; fi
 
 cfg=()
