@@ -218,6 +218,25 @@ player before it was installed: once Studio Pocket is on the player, its origina
 longer on the device. More, including what to do if a player does not start:
 [docs/recovery/y2-recovery.md](docs/recovery/y2-recovery.md).
 
+### A player on firmware the installer does not know
+
+When `read-device` stops with "not one this tool can modify" (a build it does not know), or says the
+system partition is not where it expects it, nothing was changed and nothing was kept. To help add
+support for that firmware, make a read-only copy with `capture-device`:
+
+```bash
+studio-pocket-firmware capture-device --firmware-dir ~/studio-pocket-work/y2
+```
+
+It reads exactly what `read-device` reads: the system partition, never the player's own
+calibration and ID partitions or your music. Press the pinhole when it waits, as for
+`read-device`. It keeps `system.img` and a `capture.json` report (the build, the partition's
+position, the stock launcher's hash) in a new folder under `captures/`, apart from the `units/` the
+installer uses. Open a [GitHub issue](https://github.com/MYO-Studio/studio-pocket/issues) saying
+which firmware your player has and that you have a capture, and the maintainers will tell you where
+to send the zipped folder. Don't attach it to the issue or post it anywhere public: it is the
+player maker's software, and the report holds your player's storage-chip id.
+
 ### Players running a build you made yourself
 
 A player can only be upgraded with an APK signed by the same key as the one already on it. If your
