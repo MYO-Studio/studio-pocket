@@ -27,8 +27,8 @@ android {
         minSdk = 19
         // targetSdk 19 keeps KitKat behaviour (no runtime permissions, no scoped storage).
         targetSdk = 19
-        versionCode = 15
-        versionName = "0.10.2"
+        versionCode = 16
+        versionName = "0.11.0"
     }
 
     compileOptions {
