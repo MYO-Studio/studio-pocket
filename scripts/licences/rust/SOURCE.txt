@@ -1,0 +1,7 @@
+COPYRIGHT, LICENSE-MIT, LICENSE-APACHE: the Rust project's copyright notice and its two licences (Rust is
+"MIT OR Apache-2.0"), the three files at the top of the Rust 1.98.1 source tree (https://github.com/rust-lang/rust,
+tag 1.98.1), copied from Homebrew's rust 1.98.1, which installs them from that source release.
+SHA-256 172020dbfd5b53a226dfde77616190a48dcff519b0bc0e6deb91a8450782c4af (COPYRIGHT),
+b71bd43a069ca0641a9ecfe585ca7b3c53b5cc1608f8b68321168698e28b5ea1 (LICENSE-MIT),
+62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a (LICENSE-APACHE), copied 2026-11-21.
+Used for the Rust standard library, which is linked into studio-pocket-transcode (scripts/build-transcode.sh).

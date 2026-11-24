@@ -1,6 +1,7 @@
 # Checks every push to main and every pull request: the TypeScript packages, the player's unit
-# tests and lint, the e2fsprogs and mtkclient bundles with their release gates, the licence
-# headers and the public-tree hygiene scan. No secrets: nothing here signs or publishes anything.
+# tests and lint, the e2fsprogs and mtkclient bundles with their release gates, the transcoder's
+# tests and bundle, the licence headers and the public-tree hygiene scan. No secrets: nothing here
+# signs or publishes anything.
 # Releases come from release.yml (v* tags).
 #
 # Every action is pinned to a full commit SHA; the tag it was resolved from is in the comment.
@@ -70,6 +71,40 @@ jobs:
         run: OUT_DIR="$E2FS_BUNDLE_DIR" scripts/build-e2fsprogs-windows.sh
       - run: node scripts/check-e2fsprogs-bundle.mjs   # the release gate
       - run: cat "$E2FS_BUNDLE_DIR/BUNDLE-INFO.json"
+
+  # studio-pocket-transcode (tools/transcode, Rust): the crate's tests, then the bundle as a release
+  # builds it. build-transcode.sh runs the tests again in the release profile, builds with the
+  # locked crates (LAME and libopus compiled from the source in theirs), checks that only the OS's
+  # libraries are linked, smoke-tests the binary and collects the licence texts. Rust and CMake
+  # are the runner's own.
+  transcode:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, bundle: linux }
+          - { os: macos-latest, bundle: macos }
+          - { os: windows-latest, bundle: windows }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults: { run: { shell: bash } }
+    env:
+      TRANSCODE_BUNDLE_DIR: build/transcode/${{ matrix.bundle }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22 }
+      - run: rustc --version && cargo --version && cmake --version
+      # The macOS binary is universal; the runner's Rust has only its own architecture's target.
+      - if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin
+      - name: Tests (debug profile, so with overflow checks)
+        working-directory: tools/transcode
+        run: cargo test --locked
+      - name: transcode bundle (tests in the release profile, build, checks, smoke test)
+        run: OUT_DIR="$TRANSCODE_BUNDLE_DIR" scripts/build-transcode.sh
+      - run: cat "$TRANSCODE_BUNDLE_DIR/BUNDLE-INFO.json"
 
   # mtkclient: hash-locked dependencies, mtkclient from the checksummed commit archive, the MYO
   # Pocket patches and the licence texts. build-mtkclient.sh runs scripts/setup-mtkclient-venv.sh

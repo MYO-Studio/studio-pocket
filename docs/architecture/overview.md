@@ -3,7 +3,8 @@
 Studio Pocket has four parts: a firmware engine that puts the player on a Y2 and takes it off again,
 a library format that says what the player reads from its storage, a sync engine that writes that
 library safely, and the player itself. The two commands in the [README](../../README.md),
-`studio-pocket-firmware` and `studio-pocket-sync`, are thin front ends to the engines.
+`studio-pocket-firmware` and `studio-pocket-sync`, are thin front ends to the engines. Beside them is
+one small program, `studio-pocket-transcode`, which converts audio the player cannot decode.
 
 ```
   computer                                          Innioasis Y2
@@ -102,6 +103,51 @@ Two steps, so nothing is written until everything that can fail on the computer 
 
 `studio-pocket-sync` builds the request from a folder of playlist folders and refuses, before writing
 anything, any file the player could not play.
+
+## Transcoder (`tools/transcode`)
+
+The player decodes MP3 and AAC; Android 4.4 has no Opus decoder. `studio-pocket-transcode` converts
+one Ogg Opus file, mono or stereo, to an MP3 at a constant 128 kbps and 48 kHz with the same number
+of channels. It is a program of its own, written in Rust, for two reasons: whatever is sending audio
+to a player can run several at once, one process per file, and LAME, the MP3 encoder, is LGPL, so
+it sits in a GPL program whose whole source is here, which anyone can rebuild or replace.
+
+```
+studio-pocket-transcode --version          prints "studio-pocket-transcode <version>"
+studio-pocket-transcode <input> <output>   converts one file
+```
+
+- **Streaming.** It reads an Ogg page, decodes a packet with libopus and encodes it with LAME, and
+  writes as it goes. Memory use is a few megabytes whatever the length of the audio.
+- **The same audio.** The stream's pre-skip, its output gain and the position on its last page
+  (where the audio really ends) are honoured. The MP3 starts with LAME's Info frame, which records
+  the encoder's delay and padding, so a decoder that reads it plays exactly the samples that were
+  in the Opus file; one that does not is out by under three frames (72 ms).
+- **Standard output** carries only `progress <input bytes read> <input bytes total>`, once at the
+  start and then at most about four times a second, and a final `done <output bytes>`. Each line is
+  flushed as it is written. Errors are one line on standard error.
+- **Exit codes.** `0` done. `2` wrong arguments. `3` the input is not something it reads (not Ogg,
+  not Opus, or a channel mapping other than mono or stereo): nothing is written, and the caller can
+  convert the file another way. `4` anything else (a file that cannot be read or written, a corrupt
+  or truncated stream, an encoder error): the partial output is removed. A file left at `<output>`
+  is always a complete MP3.
+- **Nothing else.** No network, no configuration file, no environment variables. To stop it, kill
+  it and delete the output.
+
+A file that ends between two Ogg pages without its last page being marked is converted as far as
+it goes, because nothing tells it from a file whose writer left the mark out; one that ends inside
+a page is an error. Other streams in the same file, and anything after the Opus stream, are ignored.
+
+`scripts/build-transcode.sh` runs the crate's tests and builds the bundle. libopus and LAME are
+compiled from the source that their Rust crates carry (`opusic-sys`, `mp3lame-sys`), pinned by
+checksum in `tools/transcode/Cargo.lock`, and linked statically, as is the `ogg` crate that reads
+the container; the script checks that the finished binary depends only on the operating system's
+libraries. On macOS the binary is universal (arm64 and x86_64) and runs on macOS 11 and later. The
+licence texts of everything linked in and a `BUNDLE-INFO.json` naming each component, its version
+and its source are installed next to it (see [../licensing/third-party.md](../licensing/third-party.md)).
+The tests make their own Ogg Opus input with libopus's encoder, so no audio is checked in.
+
+On an Apple M2, one process converts stereo audio at about 120 times real time.
 
 ## Player (`apps/player`)
 
