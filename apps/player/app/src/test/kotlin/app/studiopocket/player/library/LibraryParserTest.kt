@@ -5,6 +5,7 @@
 
 package app.studiopocket.player.library
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -44,10 +45,11 @@ class LibraryParserTest {
         for (file in files) {
             try {
                 if (file.name.startsWith("library")) LibraryParser.parseLibraryIndex(file.readText())
+                else if (file.name.startsWith("device")) LibraryParser.parseDeviceMarker(file.readText())
                 else LibraryParser.parsePlaylistManifest(file.readText())
                 fail("${file.name} should have been rejected")
             } catch (e: FormatException) {
-                assertTrue("${file.name}: ${e.message}", e.message!!.startsWith("library") || e.message!!.startsWith("manifest"))
+                assertTrue("${file.name}: ${e.message}", e.message!!.startsWith("library") || e.message!!.startsWith("manifest") || e.message!!.startsWith("device"))
             }
         }
     }
@@ -78,5 +80,33 @@ class LibraryParserTest {
         assertEquals(null, LibraryParser.parsePlaylistManifest(manifest("$base,\"icon\":null}")).tracks[0].icon)
         assertEquals("icons/a.png", LibraryParser.parsePlaylistManifest(manifest("$base,\"icon\":\"icons/a.png\"}")).tracks[0].icon)
         assertThrows(FormatException::class.java) { LibraryParser.parsePlaylistManifest(manifest("$base,\"icon\":\"tracks/a.png\"}")) }
+    }
+
+    @Test fun `device marker storage is optional, internal or card`() {
+        val base = """"format":"studiopocket-device","formatVersion":1,"deviceId":"abc-123","createdAt":"2026-10-18T12:00:00Z","createdBy":"studio-pocket-desktop/0.1.0""""
+        val desktop = LibraryParser.parseDeviceMarker("{$base}")
+        assertEquals(Storage.INTERNAL, desktop.storage)
+        assertEquals("abc-123", desktop.deviceId)
+        assertNull(desktop.playerVersion)
+        assertEquals(Storage.INTERNAL, LibraryParser.parseDeviceMarker("{$base,\"storage\":\"internal\"}").storage)
+        assertEquals(Storage.CARD, LibraryParser.parseDeviceMarker("{$base,\"storage\":\"card\"}").storage)
+        assertEquals("0.10.2", LibraryParser.parseDeviceMarker("{$base,\"playerVersion\":\"0.10.2\"}").playerVersion)
+        for (bad in listOf("\"sd\"", "null", "1", "\"\"", "\"Card\"")) {
+            val e = assertThrows(FormatException::class.java) { LibraryParser.parseDeviceMarker("{$base,\"storage\":$bad}") }
+            assertTrue(e.message!!, e.message!!.startsWith("device.storage"))
+        }
+        assertThrows(FormatException::class.java) { LibraryParser.parseDeviceMarker("""{"format":"studiopocket-device","formatVersion":1}""") }
+        assertThrows(FormatException::class.java) { LibraryParser.parseDeviceMarker("{ nope") }
+    }
+
+    @Test fun `the card marker round-trips without a player version`() {
+        val text = LibraryParser.serializeDeviceMarker("abc-123", "2026-11-14T09:00:00Z", null, Storage.CARD)
+        assertEquals(DeviceMarker("abc-123", "2026-11-14T09:00:00Z", "studio-pocket-player", null, Storage.CARD), LibraryParser.parseDeviceMarker(text))
+        assertFalse(JSONObject(text).has("playerVersion"))
+        // The internal marker is as before: a version and no storage key.
+        val internal = JSONObject(LibraryParser.serializeDeviceMarker("abc-123", "2026-11-14T09:00:00Z", "0.10.2"))
+        assertEquals("0.10.2", internal.getString("playerVersion"))
+        assertFalse(internal.has("storage"))
+        assertEquals(Storage.INTERNAL, LibraryParser.parseDeviceMarker(internal.toString()).storage)
     }
 }

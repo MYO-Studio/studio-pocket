@@ -103,13 +103,37 @@ object LibraryParser {
         if (state.mode != PlayMode.NORMAL) put("mode", state.mode.id)
     }.toString(2) + "\n"
 
-    fun serializeDeviceMarker(deviceId: String, createdAt: String, playerVersion: String): String = JSONObject().apply {
+    /** Mirrors validateDeviceMarker; `storage` is optional (absent = internal) and must be "internal" or "card". */
+    fun parseDeviceMarker(text: String): DeviceMarker {
+        val path = "device"
+        val o = obj(text, path)
+        header(o, LibraryFormat.DEVICE, path)
+        // has() is true for an explicit null too, which, like any other value, must then be a known storage.
+        val storage = if (!o.has("storage")) Storage.INTERNAL else {
+            (o.opt("storage") as? String)?.let { Storage.of(it) }
+                ?: throw FormatException("$path.storage: storage must be one of ${Storage.values().joinToString(", ") { it.wire }}")
+        }
+        return DeviceMarker(
+            deviceId = str(o, "deviceId", path, 64),
+            createdAt = str(o, "createdAt", path, 40),
+            createdBy = str(o, "createdBy", path, 100),
+            playerVersion = if (o.has("playerVersion")) str(o, "playerVersion", path, 40) else null,
+            storage = storage,
+        )
+    }
+
+    /**
+     * The marker the player writes. The internal one carries [playerVersion] and no storage; a card's
+     * has no version (the desktop reads that from internal only) and says `"storage": "card"`.
+     */
+    fun serializeDeviceMarker(deviceId: String, createdAt: String, playerVersion: String?, storage: Storage? = null): String = JSONObject().apply {
         put("format", LibraryFormat.DEVICE)
         put("formatVersion", LibraryFormat.VERSION)
         put("deviceId", deviceId)
         put("createdAt", createdAt)
         put("createdBy", "studio-pocket-player")
-        put("playerVersion", playerVersion)
+        if (playerVersion != null) put("playerVersion", playerVersion)
+        if (storage != null) put("storage", storage.wire)
     }.toString(2) + "\n"
 
     // --- helpers mirroring validate.ts ---

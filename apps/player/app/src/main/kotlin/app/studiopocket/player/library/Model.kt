@@ -62,6 +62,18 @@ data class LoadedLibrary(val playlists: List<LoadedPlaylist>, val hidden: List<P
     }
 }
 
+/** Which volume a device.json sits on; absent in the file means [INTERNAL]. */
+enum class Storage(val wire: String) {
+    INTERNAL("internal"), CARD("card");
+
+    companion object {
+        fun of(wire: String): Storage? = values().firstOrNull { it.wire == wire }
+    }
+}
+
+/** device.json after [LibraryParser.parseDeviceMarker]. A card's marker shares the internal [deviceId]: that is the pairing. */
+data class DeviceMarker(val deviceId: String, val createdAt: String, val createdBy: String, val playerVersion: String?, val storage: Storage)
+
 /**
  * A playlist's resume position. [finished]: it last played through to the end (the position is then
  * the top, ready to start again); any later save while playing clears it. [mode]: the playlist's own
