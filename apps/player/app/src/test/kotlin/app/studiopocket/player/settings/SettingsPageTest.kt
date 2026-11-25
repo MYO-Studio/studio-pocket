@@ -32,6 +32,16 @@ class SettingsPageTest {
     }
 
     @Test
+    fun cardText() {
+        assertEquals("Card: none", AboutText.card(mounted = false, paired = false, freeBytes = null, totalBytes = null))
+        assertEquals("Card: none", AboutText.card(mounted = false, paired = true, freeBytes = 1L, totalBytes = 2L))
+        assertEquals("Card: 3.2 GB free of 14 GB", AboutText.card(mounted = true, paired = true, freeBytes = 3_435_973_837L, totalBytes = 15_032_385_536L))
+        assertEquals("Card: in use", AboutText.card(mounted = true, paired = true, freeBytes = null, totalBytes = null))
+        assertEquals("Card: not in use, 3.2 GB free", AboutText.card(mounted = true, paired = false, freeBytes = 3_435_973_837L, totalBytes = 15_032_385_536L))
+        assertEquals("Card: not in use", AboutText.card(mounted = true, paired = false, freeBytes = null, totalBytes = null))
+    }
+
+    @Test
     fun bytes() {
         assertEquals("512 B", AboutText.bytes(512))
         assertEquals("1.0 KB", AboutText.bytes(1024))
