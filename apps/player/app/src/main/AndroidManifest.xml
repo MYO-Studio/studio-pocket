@@ -5,6 +5,11 @@
     <!-- Install-time permissions on API 19; needed to list /storage/sdcard0 (FAT) and the microSD. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Memory card: write its device.json; on 4.4 WRITE_EXTERNAL_STORAGE no longer covers secondary
+         storage (granted in /system/priv-app). -->
+    <uses-permission
+        android:name="android.permission.WRITE_MEDIA_STORAGE"
+        tools:ignore="ProtectedPermissions" />
     <!-- Keep the CPU awake while audio plays with the screen off. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Screen page: brightness and screen-off timeout (granted at install in /system/priv-app). -->
