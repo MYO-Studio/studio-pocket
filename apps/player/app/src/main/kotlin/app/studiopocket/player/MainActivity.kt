@@ -29,20 +29,25 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
+import app.studiopocket.player.library.CardPairing
+import app.studiopocket.player.library.CardVolume
 import app.studiopocket.player.library.GroupDef
 import app.studiopocket.player.library.GroupList
 import app.studiopocket.player.library.Groups
 import app.studiopocket.player.library.LibraryFormat
-import app.studiopocket.player.library.LibraryLoader
 import app.studiopocket.player.library.LoadedLibrary
 import app.studiopocket.player.library.LoadedPlaylist
+import app.studiopocket.player.library.MergedLibrary
+import app.studiopocket.player.library.Pairing
 import app.studiopocket.player.library.PlaylistGroup
 import app.studiopocket.player.library.PlayMode
 import app.studiopocket.player.library.CoverProgress
 import app.studiopocket.player.library.PlaylistProgress
 import app.studiopocket.player.library.RecentStore
 import app.studiopocket.player.library.StateStore
+import app.studiopocket.player.library.Volumes
 import app.studiopocket.player.playback.PlaybackService
+import app.studiopocket.player.settings.AboutText
 import app.studiopocket.player.settings.SettingsController
 import app.studiopocket.player.settings.SettingsPage
 import app.studiopocket.player.settings.SettingsStore
@@ -74,8 +79,9 @@ import java.util.Calendar
  * (ported from the author's earlier Y1 player) and the hidden settings; the diagnostics screen (under Settings >
  * About) stays a plain text layout. Everything is driven by hardware keys through [PlayerNav];
  * holding Back for 3 s on the root screen opens settings ([BackHold], [SettingsController]).
- * Reloads the library and groups whenever storage comes back from USB, and records each playlist
- * it starts in recent.json.
+ * Reloads the library and groups whenever storage comes back from USB or the memory card comes or
+ * goes (the library is internal's playlists, then a paired card's: [MergedLibrary]), and records
+ * each playlist it starts in recent.json.
  */
 class MainActivity : Activity(), PlaybackService.Listener {
     private val handler = Handler()
@@ -115,9 +121,19 @@ class MainActivity : Activity(), PlaybackService.Listener {
     private var lastRendered: PlayerNav.Screen? = null
     private val logListener: () -> Unit = { handler.post { if (nav.screen == PlayerNav.Screen.DIAGNOSTICS) renderDiagnostics() } }
 
-    private val root: File get() = File(Environment.getExternalStorageDirectory(), LibraryFormat.ROOT_DIR)
+    /** The player's own storage. State, recent and groups always live here, whatever the card does. */
+    private val internalBase: File get() = Environment.getExternalStorageDirectory()
+    private val root: File get() = File(internalBase, LibraryFormat.ROOT_DIR)
     private val stateStore: StateStore get() = StateStore(root)
     private val recentStore: RecentStore get() = RecentStore(root)
+    private val cardCandidates: List<File> get() = Volumes.cardCandidates(System.getenv("SECONDARY_STORAGE"))
+    /** The memory card as last probed, and whether it is this player's (null: not mounted, or internal is not). */
+    private var card = CardVolume(null, "absent")
+    private var pairing: Pairing? = null
+    /** Cards announced as going (eject comes before the unmount) until their MEDIA_MOUNTED; cleared on resume. */
+    private val goneCards = mutableListOf<File>()
+    /** The last card problem logged, so a reload on every resume does not flood the event log. */
+    private var lastCardNote: String? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -130,18 +146,25 @@ class MainActivity : Activity(), PlaybackService.Listener {
 
     private val storageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_BATTERY_CHANGED) {
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+                val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+                batteryPercent = if (level < 0) -1 else level * 100 / maxOf(scale, 1)
+                charging = plugged != 0
+                batteryLine = "battery: $batteryPercent% plugged=$plugged"
+                settings.batteryPercent = batteryPercent
+                if (nav.screen != PlayerNav.Screen.DIAGNOSTICS) render()
+                return
+            }
+            // The memory card's broadcasts never touch storageAvailable, which is the internal volume's.
+            val volume = intent.data?.path?.let { File(it) }
+            if (volume != null && isCard(volume)) {
+                onCardEvent(intent.action, volume)
+                EventLog.shared.add("media ${intent.action?.substringAfterLast('.')} ${volume.path} (card)")
+                return
+            }
             when (intent.action) {
-                Intent.ACTION_BATTERY_CHANGED -> {
-                    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-                    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
-                    val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
-                    batteryPercent = if (level < 0) -1 else level * 100 / maxOf(scale, 1)
-                    charging = plugged != 0
-                    batteryLine = "battery: $batteryPercent% plugged=$plugged"
-                    settings.batteryPercent = batteryPercent
-                    if (nav.screen != PlayerNav.Screen.DIAGNOSTICS) render()
-                    return
-                }
                 Intent.ACTION_MEDIA_MOUNTED -> { storageAvailable = true; reloadLibrary() }
                 else -> {
                     storageAvailable = false
@@ -153,6 +176,34 @@ class MainActivity : Activity(), PlaybackService.Listener {
             }
             EventLog.shared.add("media ${intent.action?.substringAfterLast('.')} ${intent.data?.path}")
         }
+    }
+
+    /** A broadcast is the card's when its path is a card candidate and not the internal volume; anything else keeps the internal handling. */
+    private fun isCard(volume: File): Boolean =
+        !Volumes.sameDir(volume, internalBase) && cardCandidates.any { Volumes.sameDir(it, volume) }
+
+    /**
+     * Card mounted: reload, which pairs it and shows its playlists. Card going (eject, unmount,
+     * removal, USB share): its playlist stops if one is playing (the service saves the position only
+     * on an eject, when the files are still readable), and the reload leaves the card out even if it
+     * still reads as mounted for a moment after the eject.
+     */
+    private fun onCardEvent(action: String?, volume: File) {
+        goneCards.removeAll { Volumes.sameDir(it, volume) }
+        if (action != Intent.ACTION_MEDIA_MOUNTED) {
+            goneCards += volume
+            if (service?.stopIfOn(volume, save = action == Intent.ACTION_MEDIA_EJECT) == true && nav.screen == PlayerNav.Screen.PLAYER) nav.showRoot()
+        }
+        reloadLibrary()
+    }
+
+    private fun probeCard(): CardVolume = Volumes.findCard(internalBase, cardCandidates) { f ->
+        if (goneCards.any { Volumes.sameDir(it, f) }) "going" else runCatching { Environment.getStorageState(f) }.getOrNull()
+    }
+
+    private fun noteCard(message: String) {
+        Log.w(TAG, message)
+        if (message != lastCardNote) { lastCardNote = message; EventLog.shared.add(message) }
     }
 
     /** The clock on the top line, in the player's 12- or 24-hour setting. */
@@ -222,6 +273,7 @@ class MainActivity : Activity(), PlaybackService.Listener {
             addAction(Intent.ACTION_TIME_TICK); addAction(Intent.ACTION_TIME_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
         })
         storageAvailable = Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED
+        goneCards.clear()   // broadcasts were missed while paused; the storage state is current again
         // Back from the stock Bluetooth screen: USB may have taken storage while our receiver was off,
         // and the idle timer was held while that screen was in front.
         if (!storageAvailable && inSettings()) { leaveSettings(); nav.closeSettings() }
@@ -246,19 +298,37 @@ class MainActivity : Activity(), PlaybackService.Listener {
         super.onPause()
     }
 
+    /**
+     * Internal's marker first, so a fresh player can mark its card in the same pass. The card is only
+     * read while internal is available (its state and groups are on internal); only a paired card's
+     * playlists are shown, after internal's ([MergedLibrary]).
+     */
     private fun reloadLibrary() {
-        library = if (storageAvailable) LibraryLoader(root).load() else LoadedLibrary.empty("Connected to computer")
         if (storageAvailable) stateStore.ensureDeviceMarker(BuildConfigCompat.versionName(this))
+        card = probeCard()
+        val paired = if (storageAvailable) card.root?.let { CardPairing.pair(root, it, ::noteCard) } else null
+        pairing = paired
+        if (paired == Pairing.MARKED) EventLog.shared.add("card ${card.path}: marked as this player's")
+        else if (paired?.paired == false) noteCard("card ${card.path}: not shown, ${paired.label}")
+        val cardRoot = card.root?.takeIf { paired?.paired == true }
+        library = if (storageAvailable) MergedLibrary.load(root, cardRoot) else LoadedLibrary.empty("Connected to computer")
         Artwork.clear()
         PixelIcon.clear()
         progressCache.clear()
         CoverThumbs.clear()
         settings.playlistCount = library.playlists.size
+        settings.card = card
+        settings.cardPaired = pairing?.paired == true
         groupDefs = if (storageAvailable) Groups.load(root) else emptyList()
         refreshGroups(readRecent = nav.flat || nav.screen == PlayerNav.Screen.GROUPS)
         Log.i(TAG, "library: ${library.playlists.size} playlists, ${library.hidden.size} hidden, problem=${library.problem}; groups: ${groups.groups.size} shown of ${groupDefs.size} defined, flat=${groups.flat}")
         library.hidden.forEach { (id, why) -> Log.w(TAG, "hidden $id: $why") }
-        service?.playlist?.let { playing -> if (library.playlists.none { it.id == playing.id }) service?.stop() }
+        service?.playlist?.let { playing ->
+            // A card playlist no longer shown from that card (card gone, swapped or not this player's):
+            // stop without saving over the last saved position, as the service does when the card goes.
+            if (!Volumes.isUnder(playing.dir, root) && library.playlists.none { it.dir == playing.dir }) service?.stopIfOn(playing.dir, save = false)
+            else if (library.playlists.none { it.id == playing.id }) service?.stop()
+        }
         render()
     }
 
@@ -627,9 +697,12 @@ class MainActivity : Activity(), PlaybackService.Listener {
         val lines = EventLog.shared.snapshot()
         findViewById<TextView>(R.id.diag_keys).text = if (lines.isEmpty()) getString(R.string.waiting_for_key) else lines.joinToString("\n")
         val primary = Environment.getExternalStorageDirectory()
-        val secondary = System.getenv("SECONDARY_STORAGE")?.split(':')?.firstOrNull()
-        val storage = mutableListOf("storage $primary [${Environment.getExternalStorageState()}] secondary=${secondary ?: "-"}")
-        storage += "library: ${library.playlists.size} shown, ${library.hidden.size} hidden${library.problem?.let { " – $it" } ?: ""}"
+        val secondary = System.getenv("SECONDARY_STORAGE")
+        fun space(f: File?) = f?.let { SettingsController.space(it) }?.let { (free, total) -> " ${AboutText.bytes(free)} free of ${AboutText.bytes(total)}" } ?: ""
+        val storage = mutableListOf("storage $primary [${Environment.getExternalStorageState()}]${space(primary.takeIf { storageAvailable })} secondary=${secondary ?: "-"}")
+        storage += "card ${card.path ?: "-"} [${card.state}] paired=${pairing?.label ?: "-"}${space(card.path?.takeIf { card.mounted })}"
+        val onCard = card.root?.takeIf { pairing?.paired == true }?.let { r -> library.playlists.count { Volumes.isUnder(it.dir, r) } } ?: 0
+        storage += "library: ${library.playlists.size} shown ($onCard on card), ${library.hidden.size} hidden${library.problem?.let { " – $it" } ?: ""}"
         storage += "groups: ${groupDefs.size} defined, ${groups.groups.size} shown${if (groups.flat) " (flat)" else ""}; recent: ${groups.groups.firstOrNull { it.kind == PlaylistGroup.Kind.RECENT }?.playlists?.size ?: 0}"
         library.hidden.take(3).forEach { (id, why) -> storage += "  hidden $id: $why" }
         storage += StorageListing.describe(root, 6)
