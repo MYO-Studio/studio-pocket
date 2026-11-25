@@ -15,7 +15,7 @@ import type { SyncFs } from './fs.js';
  * Applies a plan. Order matters and is the whole point:
  *   1. Stray partial files removed (before the free-space check, so leftovers of an interrupted
  *      run count as free space); sync.lock written (a hint to the player; never blocks it).
- *   2. Removed playlists deleted (dir + state file).
+ *   2. Removed playlists deleted (dir + state file, unless the playlist is only moving volumes).
  *   3. Copy: every file of every add/update is written to `<name>.part`. A file with no live
  *      predecessor (`missing`) is renamed live at once: no manifest names it yet, and it is kept
  *      if the run is interrupted. Replacements (`size`, `changed`, `hash`) stay as `.part`, so an
@@ -43,6 +43,13 @@ export interface ApplyOptions {
     freeBytes?: (dir: string) => Promise<number | null>;
     /** Safety margin kept free on the volume. */
     reserveBytes?: number;
+    /**
+     * The library root that holds `state/` (default: the plan's root). A memory card's plan passes
+     * the internal root: resume positions for every playlist live on the internal storage.
+     */
+    stateRoot?: string;
+    /** Removed playlists whose state file stays: they are moving to the other volume, not leaving the player. */
+    keepState?: ReadonlySet<string>;
 }
 
 export interface ProgressEvent {
@@ -75,18 +82,20 @@ export async function applySync(fs: SyncFs, plan: SyncPlan, options: ApplyOption
     const free = await (options.freeBytes ?? fs.freeBytes)(root);
     const reserve = options.reserveBytes ?? 16 * 1024 * 1024;
     const reclaim = 0; // removals free space, but FAT frees lazily; do not count on it.
-    if (free !== null && plan.bytesToCopy + reserve > free + reclaim) {
+    // A plan with nothing to copy (a removal, or only moving a playlist's old copy away) never needs room.
+    if (free !== null && plan.bytesToCopy > 0 && plan.bytesToCopy + reserve > free + reclaim) {
         throw new InsufficientStorageError(`need ${plan.bytesToCopy} bytes plus ${reserve} reserve, volume has ${free} free`);
     }
 
+    const stateRoot = options.stateRoot ?? root;
     await fs.mkdirp(fs.join(root, PLAYLISTS_DIR));
-    await fs.mkdirp(fs.join(root, STATE_DIR));
+    await fs.mkdirp(fs.join(stateRoot, STATE_DIR));
     await fs.writeFile(fs.join(root, SYNC_LOCK_FILE), `${options.generator} ${new Date().toISOString()}\n`);
 
     const removed: string[] = [];
     for (const action of plan.playlists.filter((p) => p.kind === 'remove')) {
         await fs.remove(fs.join(root, PLAYLISTS_DIR, action.id), true);
-        await fs.remove(fs.join(root, STATE_DIR, `${action.id}.json`), false);
+        if (!options.keepState?.has(action.id)) await fs.remove(fs.join(stateRoot, STATE_DIR, `${action.id}.json`), false);
         removed.push(action.id);
     }
 

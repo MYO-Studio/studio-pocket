@@ -84,7 +84,17 @@ export interface DeviceMarker {
     createdAt: string;
     createdBy: string;
     playerVersion?: string;
+    /**
+     * Which of the player's volumes this is (added 2026-11-14, still format version 1). Absent means
+     * internal. A memory card's marker has the internal marker's deviceId and `card`: that pairs them.
+     */
+    storage?: DeviceStorage;
 }
+
+export type DeviceStorage = 'internal' | 'card';
+export const DEVICE_STORAGES: readonly DeviceStorage[] = ['internal', 'card'];
+/** The volume a marker describes; an older marker without the field is the internal storage. */
+export const storageOf = (marker: Pick<DeviceMarker, 'storage'>): DeviceStorage => marker.storage ?? 'internal';
 
 /** Written only by the player; the desktop preserves it across syncs. */
 export interface PlaybackState {

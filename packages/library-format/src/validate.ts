@@ -4,8 +4,8 @@
 // commercial licence from Ashworth Digital Ltd (see COPYING.commercial).
 
 import {
-    DEVICE_FORMAT, FORMAT_VERSION, GROUP_DISPLAYS, GROUPS_DIR, GROUPS_FORMAT, LIBRARY_FORMAT, MAX_GROUPS, MAX_GROUP_COVERS, MAX_GROUP_TITLE, MAX_ICON_REF, MAX_RECENT, PLAY_MODES, PLAYLIST_FORMAT, RECENT_FORMAT, RESERVED_GROUP_IDS, STATE_FORMAT,
-    type DeviceMarker, type GroupDisplay, type GroupsFile, type LibraryIndex, type LibraryIndexEntry, type PlaybackState, type PlayMode, type PlaylistGroup, type PlaylistManifest, type RecentFile, type TrackEntry,
+    DEVICE_FORMAT, DEVICE_STORAGES, FORMAT_VERSION, GROUP_DISPLAYS, GROUPS_DIR, GROUPS_FORMAT, LIBRARY_FORMAT, MAX_GROUPS, MAX_GROUP_COVERS, MAX_GROUP_TITLE, MAX_ICON_REF, MAX_RECENT, PLAY_MODES, PLAYLIST_FORMAT, RECENT_FORMAT, RESERVED_GROUP_IDS, STATE_FORMAT,
+    type DeviceMarker, type DeviceStorage, type GroupDisplay, type GroupsFile, type LibraryIndex, type LibraryIndexEntry, type PlaybackState, type PlayMode, type PlaylistGroup, type PlaylistManifest, type RecentFile, type TrackEntry,
 } from './types.js';
 
 /**
@@ -134,6 +134,10 @@ export function validateDeviceMarker(value: unknown, path = 'device'): DeviceMar
     header(o, DEVICE_FORMAT, path);
     const marker: DeviceMarker = { format: DEVICE_FORMAT, formatVersion: FORMAT_VERSION, deviceId: str(o, 'deviceId', path, 64), createdAt: str(o, 'createdAt', path, 40), createdBy: str(o, 'createdBy', path, 100) };
     if (o.playerVersion !== undefined) marker.playerVersion = str(o, 'playerVersion', path, 40);
+    if (o.storage !== undefined) {
+        if (!DEVICE_STORAGES.includes(o.storage as DeviceStorage)) throw new FormatError(`storage must be one of ${DEVICE_STORAGES.join(', ')}`, `${path}.storage`);
+        marker.storage = o.storage as DeviceStorage;
+    }
     return marker;
 }
 

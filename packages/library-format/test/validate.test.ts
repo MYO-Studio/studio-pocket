@@ -28,6 +28,11 @@ describe('validators accept the shared fixtures', () => {
 
     it('device.json and state', async () => {
         expect(parseWith(validateDeviceMarker, await readFile(path.join(root, 'device.json'), 'utf8'), 'device.json').deviceId).toBe('fixture-device-0001');
+        const marker = { format: 'studiopocket-device', formatVersion: 1, deviceId: 'd-1', createdAt: 'x', createdBy: 'y' };
+        expect(validateDeviceMarker(marker).storage).toBeUndefined();
+        expect(validateDeviceMarker({ ...marker, storage: 'card' }).storage).toBe('card');
+        expect(validateDeviceMarker({ ...marker, storage: 'internal' }).storage).toBe('internal');
+        expect(() => validateDeviceMarker({ ...marker, storage: 'usb' })).toThrow(/storage must be one of/);
         expect(parseWith(validatePlaybackState, await readFile(path.join(root, 'state', 'bedtime.json'), 'utf8'), 'state')).toMatchObject({ playlistId: 'bedtime', trackIndex: 1, positionMs: 1500 });
         const base = { format: 'studiopocket-state', formatVersion: 1, playlistId: 'bedtime', trackIndex: 0, positionMs: 0, updatedAt: '2026-11-10T00:00:00Z' };
         expect(validatePlaybackState({ ...base, finished: true }).finished).toBe(true);

@@ -155,7 +155,7 @@ Fixtures: `fixtures/library/STUDIOPOCKET/{groups.json,groups/,recent.json}` and
 | `icon` optional (absent or `null` = the player's folder glyph); must be `groups/<file name>` | Same file-name rules as covers. A missing or unreadable file is non-fatal. |
 | `iconRef` optional string ≤ 100, ignored by the player | Lets the writer record which icon was picked (for example `yoto:<mediaId>`). |
 | `playlists`: ids, unique within the group, and a playlist is in at most one group | Folder semantics. The validator rejects a playlist in two groups; the player lets the first win. |
-| Ids not in `library.json` are allowed | Removing a playlist never breaks groups; the writer prunes them when it writes. |
+| Ids not in `library.json` are allowed | Removing a playlist never breaks groups. A writer takes a playlist's id out of its group when it removes the playlist, prunes ids its own edit names that aren't on the player, and keeps ids the saved file had that it can't see (they may be on a memory card that isn't connected). |
 | Order of `groups` is order on the player; order of `playlists` is the group's cover-flow order | Explicit, set by the writer. |
 | `display`, `image`, `covers` optional | How the group's tile looks; see below. |
 
@@ -213,3 +213,21 @@ engine's stray clean-up and `applySync` never touch `groups.json`, `groups/` or 
 
 On the player: the home screen is Recent, the user's groups that have something on the player
 (in file order), then All. With no such group it shows the flat cover flow as before.
+
+### Memory card (added 2026-11-14, still format version 1)
+
+The Y2's microSD card carries a second `STUDIOPOCKET/` with the same layout, holding the playlists
+stored on the card.
+
+| Rule | Why |
+|---|---|
+| `device.json` may carry `"storage": "internal"` or `"card"`; absent = internal | Lets the desktop tell the two drives apart. Older readers ignore the field. |
+| The card's marker has the internal marker's `deviceId` | That is the pairing. A card whose `deviceId` differs belongs to another player and is not shown. |
+| Each volume's `library.json` lists only playlists on that volume (`dir` stays `playlists/<id>`) | Each volume is a self-contained library, written with the same guarantees as before. |
+| A playlist lives on one volume; if found on both, the internal copy is shown and the next sync removes the other | An interrupted move leaves a duplicate rather than nothing. |
+| `state/`, `recent.json`, `groups.json` and `groups/` live on internal only, and may name card playlists | The card can be removed; positions and groups survive it. |
+| `sync.lock` on either volume shows the "sync in progress" note | Either half may be mid-write. |
+
+The player creates the card's marker when it finds a card without one (same `deviceId`, `"storage":
+"card"`); the desktop can also adopt a drive as a player's card. A player that predates this shows
+only the internal half.

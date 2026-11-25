@@ -18,9 +18,11 @@ import android.provider.Settings
 import android.text.format.DateFormat
 import android.util.Log
 import app.studiopocket.player.BuildConfigCompat
+import java.io.File
 import java.io.IOException
 import java.util.Calendar
 import java.util.TimeZone
+import app.studiopocket.player.library.CardVolume
 import app.studiopocket.player.library.LibraryFormat
 import app.studiopocket.player.playback.PlaybackService
 import app.studiopocket.player.playback.SleepTimer
@@ -52,6 +54,9 @@ class SettingsController(
     /** Set by the activity; shown on About. */
     var playlistCount = 0
     var batteryPercent = -1
+    /** The memory card as the activity last probed it, and whether it is this player's. */
+    var card: CardVolume? = null
+    var cardPaired = false
 
     /** The LICENCE_TEXT page's document, its screen lines and the first line shown. */
     private var doc: LicenceDocs.Doc? = null
@@ -395,15 +400,14 @@ class SettingsController(
     // --- about ---
 
     private fun aboutRows(): List<SettingsRow> {
-        val storage = runCatching {
-            if (Environment.getExternalStorageState() != Environment.MEDIA_MOUNTED) null
-            else StatFs(Environment.getExternalStorageDirectory().path).let { it.availableBytes to it.totalBytes }
-        }.getOrNull()
+        val storage = if (Environment.getExternalStorageState() != Environment.MEDIA_MOUNTED) null else space(Environment.getExternalStorageDirectory())
+        val cardSpace = card?.takeIf { it.mounted }?.path?.let { space(it) }
         return listOf(
             SettingsRow("about.version", "Studio Pocket ${BuildConfigCompat.versionName(activity)}", enabled = false),
             SettingsRow("about.android", "Android ${Build.DISPLAY}", enabled = false),
             SettingsRow("about.library", AboutText.library(playlistCount, LibraryFormat.VERSION), enabled = false),
             SettingsRow("about.storage", AboutText.storage(storage?.first, storage?.second), enabled = false),
+            SettingsRow("about.card", AboutText.card(card?.mounted == true, cardPaired, cardSpace?.first, cardSpace?.second), enabled = false),
             SettingsRow("about.battery", AboutText.battery(batteryPercent), enabled = false),
             SettingsRow("about.licences", "Licences"),
             SettingsRow("about.diagnostics", "Diagnostics"),
@@ -440,5 +444,8 @@ class SettingsController(
 
     companion object {
         private const val TAG = "StudioPocket"
+
+        /** Free and total bytes of the volume at [path], or null if it cannot be asked. */
+        fun space(path: File): Pair<Long, Long>? = runCatching { StatFs(path.path).let { it.availableBytes to it.totalBytes } }.getOrNull()
     }
 }

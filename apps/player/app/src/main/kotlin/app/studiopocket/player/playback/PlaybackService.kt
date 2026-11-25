@@ -13,6 +13,7 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Binder
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.PowerManager
@@ -22,7 +23,9 @@ import app.studiopocket.player.library.LoadedPlaylist
 import app.studiopocket.player.library.PlaybackState
 import app.studiopocket.player.library.PlayMode
 import app.studiopocket.player.library.StateStore
+import app.studiopocket.player.library.Volumes
 import app.studiopocket.player.settings.SettingsStore
+import java.io.File
 import java.io.IOException
 
 /**
@@ -32,6 +35,7 @@ import java.io.IOException
  * STUDIOPOCKET/state/<playlist>.json every few seconds and on every pause/stop. Owns the
  * [VolumeLimiter] so the parent's volume cap holds with the screen off, and the one-off
  * [SleepTimer] (fades the player's own gain over the last 10 s, then pauses, or stops at a track change).
+ * Stops a memory-card playlist when its card goes away ([stopIfOn]).
  */
 class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer.OnErrorListener, AudioManager.OnAudioFocusChangeListener {
     enum class Status { IDLE, PREPARING, PLAYING, PAUSED, STOPPED }
@@ -71,6 +75,19 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         }
     }
 
+    /**
+     * A memory card going away (eject, unmount, removal, USB share) stops a playlist that lives on it,
+     * also with the screen off when the activity's receiver is not registered. The internal volume is
+     * left to the activity, as before ([stop]).
+     */
+    private val cardReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val path = intent.data?.path ?: return
+            if (Volumes.sameDir(File(path), Environment.getExternalStorageDirectory())) return
+            stopIfOn(File(path), save = intent.action == Intent.ACTION_MEDIA_EJECT)
+        }
+    }
+
     private val saveTick = object : Runnable {
         override fun run() {
             if (status == Status.PLAYING) {
@@ -96,6 +113,11 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "StudioPocket:playback")
         registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        registerReceiver(cardReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_MEDIA_EJECT); addAction(Intent.ACTION_MEDIA_UNMOUNTED); addAction(Intent.ACTION_MEDIA_REMOVED)
+            addAction(Intent.ACTION_MEDIA_BAD_REMOVAL); addAction(Intent.ACTION_MEDIA_SHARED)
+            addDataScheme("file")
+        })
         volumeLimiter = VolumeLimiter(this, SettingsStore(this)).also { it.start() }
     }
 
@@ -104,6 +126,7 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         handler.removeCallbacks(saveTick)
         volumeLimiter.stop()
         unregisterReceiver(noisyReceiver)
+        unregisterReceiver(cardReceiver)
         release()
         super.onDestroy()
     }
@@ -263,6 +286,22 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
         notifyListeners()
     }
 
+    /**
+     * Stops if the loaded playlist lives on [volume] (a memory card going away) and is playing,
+     * paused or starting; true if it did. [save] writes the current position, for an eject, while
+     * the files are still readable; after a removal the player may already have failed, so the last
+     * save (every 5 s while playing, and on pause) stands. State is on internal, so it survives the card.
+     */
+    fun stopIfOn(volume: File, save: Boolean): Boolean {
+        val p = playlist ?: return false
+        if (status == Status.STOPPED || status == Status.IDLE || !Volumes.isUnder(p.dir, volume)) return false
+        Log.i(TAG, "card $volume going: stopping ${p.id} (save=$save)")
+        stopInternal(save = save)
+        status = Status.STOPPED
+        notifyListeners()
+        return true
+    }
+
     private fun startTrack() {
         val p = playlist ?: return
         val file = p.trackFile(trackIndex)
@@ -309,6 +348,14 @@ class PlaybackService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer
     private fun onTrackFailed(message: String) {
         Log.w(TAG, message)
         lastError = message
+        // The playlist's folder is gone: its card was pulled before (or without) a broadcast. Stop
+        // here rather than fail through the remaining tracks; the last saved position stands.
+        if (playlist?.dir?.isDirectory == false) {
+            stopInternal(save = false)
+            status = Status.STOPPED
+            notifyListeners()
+            return
+        }
         consecutiveErrors++
         val size = playlist?.manifest?.tracks?.size ?: 0
         if (consecutiveErrors >= size) {

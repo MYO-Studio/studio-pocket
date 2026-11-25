@@ -29,9 +29,25 @@ object AboutText {
     fun library(playlists: Int, formatVersion: Int): String =
         "Library: $playlists ${if (playlists == 1) "playlist" else "playlists"} (format v$formatVersion)"
 
-    /** "Storage: 3.2 GB free of 7.4 GB", or "Storage: —" when the card is not mounted (null sizes). */
+    /** The player's own storage: "Storage: 3.2 GB free of 7.4 GB", or "Storage: —" when it is not mounted (null sizes). */
     fun storage(freeBytes: Long?, totalBytes: Long?): String =
         if (freeBytes == null || totalBytes == null) "Storage: —" else "Storage: ${bytes(freeBytes)} free of ${bytes(totalBytes)}"
+
+    /**
+     * The memory card: "Card: none" when none is mounted, "Card: 12 GB free of 29 GB" when it is this
+     * player's, "Card: not in use, 12 GB free" when it is mounted but not paired (another player's, or
+     * its device.json cannot be read or written).
+     */
+    fun card(mounted: Boolean, paired: Boolean, freeBytes: Long?, totalBytes: Long?): String {
+        if (!mounted) return "Card: none"
+        val sized = freeBytes != null && totalBytes != null
+        return when {
+            paired && sized -> "Card: ${bytes(freeBytes!!)} free of ${bytes(totalBytes!!)}"
+            paired -> "Card: in use"
+            sized -> "Card: not in use, ${bytes(freeBytes!!)} free"
+            else -> "Card: not in use"
+        }
+    }
 
     fun battery(percent: Int): String = if (percent < 0) "Battery: ?" else "Battery: $percent%"
 

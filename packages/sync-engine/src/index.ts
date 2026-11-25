@@ -8,3 +8,5 @@ export * from './fs.js';
 export * from './device.js';
 export * from './plan.js';
 export * from './apply.js';
+export * from './placement.js';
+export * from './multi.js';

@@ -4,7 +4,7 @@
 // commercial licence from Ashworth Digital Ltd (see COPYING.commercial).
 
 import {
-    ICONS_DIR, LIBRARY_FILE, PARTIAL_SUFFIX, PLAYLISTS_DIR, PLAYLIST_MANIFEST_FILE, STATE_DIR, TRACKS_DIR,
+    ICONS_DIR, ID_PATTERN, LIBRARY_FILE, PARTIAL_SUFFIX, PLAYLISTS_DIR, PLAYLIST_MANIFEST_FILE, STATE_DIR, TRACKS_DIR,
     checkLibrary, validatePlaylistManifest, type LibraryCheck, type PlaylistManifest,
 } from '@studio-pocket/library-format';
 import type { SourcePlaylist } from './source.js';
@@ -120,8 +120,10 @@ export async function planTransfer(fs: SyncFs, root: string, request: TransferRe
         playlists.push(await planPlaylist(fs, root, sp, existingById.get(sp.manifest.id), options.verifyHashes ?? false));
     }
     const onDevice = new Set<string>(existingById.keys());
-    for (const { name } of await fs.readdir(fs.join(root, PLAYLISTS_DIR))) {
-        if (!name.endsWith(PARTIAL_SUFFIX)) onDevice.add(name);
+    // Only folders named like a playlist id: macOS leaves `._<name>` and `.DS_Store` files in
+    // playlists/ on FAT and exFAT drives, and those are not playlists.
+    for (const { name, isDir } of await fs.readdir(fs.join(root, PLAYLISTS_DIR))) {
+        if (isDir && ID_PATTERN.test(name)) onDevice.add(name);
     }
     const removing = new Set(request.remove);
     for (const id of [...onDevice].sort()) {
