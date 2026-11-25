@@ -381,6 +381,18 @@ describe('updates and removals', () => {
         expect(await readFile(path.join(root, 'playlists/someone-else/notes.txt'), 'utf8')).toBe('keep me');
     });
 
+    it('ignores entries in playlists/ that are not playlist folders (macOS ._ files, stray files)', async () => {
+        await applySync(await planFor(root, await sourceFromFixtures(['bedtime'])), { generator: 'test' });
+        await writeFile(path.join(root, 'playlists/._bedtime'), 'AppleDouble');
+        await writeFile(path.join(root, 'playlists/.DS_Store'), 'finder');
+        await writeFile(path.join(root, 'playlists/readme'), 'a file, not a folder');
+        const plan = await planFor(root, await sourceFromFixtures(['bedtime']));
+        expect(plan.playlists.map((p) => p.id)).toEqual(['bedtime']);
+        const result = await applySync(plan, { generator: 'test' });
+        expect(result.skipped).toEqual([]);
+        expect(result.index.playlists.map((p) => p.id)).toEqual(['bedtime']);
+    });
+
     it('refuses to send and remove the same playlist', async () => {
         await expect(planFor(root, await sourceFromFixtures(['bedtime']), ['bedtime'])).rejects.toThrow(/both send and remove/);
     });
