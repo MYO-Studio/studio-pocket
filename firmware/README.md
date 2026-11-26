@@ -30,7 +30,9 @@ the stock launcher is the only real change (3.2.3 to 3.2.9, still at
 `/system/priv-app/MyLauncher.apk` with no `.odex`). Everything else differs only by build stamps,
 and the platform signer, key layouts, init scripts and permission files are identical. The 0.10.2
 player APK patches into that image and passes `verify` (launcher replaced, wake keys added, SELinux
-label set, clean `e2fsck`). It has not yet been read from or installed on a player; the partition map is
-carried over from 3.2.4, and the device path measures the real layout on each player anyway.
+label set, clean `e2fsck`). On 2026-11-26 it was written to the test player, read back with `read-device`
+(`MATCH` for 3.2.8, same layout as 3.2.4) and Studio Pocket 0.10.2 was installed and booted
+([docs/tested-hardware.md](../docs/tested-hardware.md)). The partition map is carried over from 3.2.4; the
+device path measures the real layout on each player anyway.
 
 A 3.2.0 player without FM Radio has no stock image on the archive and is not supported until one exists.
