@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { identifyImage, loadManifest, mtkAvailable, nodePlatform, patchSystemImage, prepareStock, sha256File, verifyPatchedImage } from './node.js';
-import { executeWrite, InstallerError, loadDeviceReadReport, planWrite, prepareInstallFromDevice, prepareUpgradeFromDevice, readDeviceSystem, recordInstall, restoreAvailableFor, UncheckedToolError, UnconfirmedPlayerError, UpToDateError, WrongPlayerError } from './installer.js';
+import { executeWrite, InstallerError, loadDeviceReadReport, planWrite, prepareInstallFromDevice, prepareUpgradeFromDevice, readDeviceSystem, recordInstall, restoreAvailableFor, UncheckedToolError, UnconfirmedPlayerError, UnsupportedFirmwareError, UpToDateError, WrongPlayerError } from './installer.js';
 import { currentUnit, LEGACY_UNIT, listUnits, readUnit } from './units.js';
 import type { UnitInfo } from './units.js';
 import { parseMtkLine } from './mtk.js';
@@ -18,6 +18,7 @@ import { ensureDownloadAgent, PRELOADER_FILE_ENV, preloaderOverride } from './da
 import { targetPartition } from './manifest.js';
 import { parseScatter } from './scatter.js';
 import { buildFlashPlan, checkCompatibility } from './flashplan.js';
+import { CAPTURE_REPORT_FILE, captureDevice } from './capture.js';
 
 /**
  * studio-pocket-firmware: the installer engine from the command line. The device-sourced commands
@@ -42,6 +43,12 @@ const usage = `usage:
                                                                 the first and last MiB (--verify full: the whole image). Refuses a player
                                                                 other than the unit's. Asks you to type WRITE unless --yes.
   read-device names the player itself (unit <id>); the other commands take --unit <id>, default: the player read last.
+
+  studio-pocket-firmware capture-device --firmware-dir <dir> [--out <dir>] [--manifests <json,…>]
+                                                                read-only: for a firmware this tool does not know yet. Reads the same window
+                                                                as read-device but keeps the system image whatever its build, with a
+                                                                capture.json report, in --out (default <dir>/captures/<time>). Share that
+                                                                folder privately so support for the new firmware can be added.
 
   studio-pocket-firmware inspect <image>                                  identify an image (ext4 / sparse) and print its superblock
 
@@ -136,9 +143,17 @@ async function main(argv: string[]): Promise<number> {
             const firmwareDir = path.resolve(need(flags, 'firmware-dir'));
             const files = flags.manifests ? flags.manifests.split(',').map((f) => path.resolve(f)) : defaultManifests;
             const manifests = await Promise.all(files.map(loadManifest));
-            const report = await readDeviceSystem(nodePlatform, { firmwareDir, manifests }, {
-                log, stage: (s) => console.log(`\n== ${s}`), progress: (label, bytes, total) => process.stdout.write(`\r${label}: ${total ? Math.round((bytes / total) * 100) : bytes}%   `), mtk: mtkEcho,
-            });
+            let report: Awaited<ReturnType<typeof readDeviceSystem>>;
+            try {
+                report = await readDeviceSystem(nodePlatform, { firmwareDir, manifests }, {
+                    log, stage: (s) => console.log(`\n== ${s}`), progress: (label, bytes, total) => process.stdout.write(`\r${label}: ${total ? Math.round((bytes / total) * 100) : bytes}%   `), mtk: mtkEcho,
+                });
+            } catch (e) {
+                if (!(e instanceof UnsupportedFirmwareError)) throw e;
+                console.error(`\n${e.message}`);
+                console.error('Nothing was changed on the player. To help add support for this firmware, make a read-only copy with capture-device (see the README).');
+                return 1;
+            }
             console.log(`\nunit ${report.unitId} (${(await readUnit(nodePlatform, firmwareDir, report.unitId))?.firstSeen === report.readAt ? 'created' : 'updated'})`);
             console.log(JSON.stringify({ ...report, identity: { ...report.identity, manifest: report.identity.manifest?.firmwareVersion ?? null }, mtkLog: undefined }, null, 2));
             if (report.state === 'studiopocket') {
@@ -148,6 +163,26 @@ async function main(argv: string[]): Promise<number> {
                 return 0;
             }
             console.log(`MATCH: the player carries ${report.identity.manifest?.firmwareVersion} (build ${report.identity.build}); its system image is kept at ${report.stockImage}`);
+            return 0;
+        }
+        case 'capture-device': {
+            const firmwareDir = path.resolve(need(flags, 'firmware-dir'));
+            const outDir = path.resolve(flags.out ?? path.join(firmwareDir, 'captures', new Date().toISOString().replace(/[:.]/g, '-')));
+            const files = flags.manifests ? flags.manifests.split(',').map((f) => path.resolve(f)) : defaultManifests;
+            const manifests = await Promise.all(files.map(loadManifest));
+            console.log('Read-only: nothing is written to the player. Connect it and press the reset pinhole when mtkclient waits.');
+            const report = await captureDevice(nodePlatform, { firmwareDir, outDir, manifests }, {
+                log, stage: (s) => console.log(`\n== ${s}`), progress: (label, bytes, total) => process.stdout.write(`\r${label}: ${total ? Math.round((bytes / total) * 100) : bytes}%   `), mtk: mtkEcho,
+            });
+            console.log(`\n\nCaptured into ${outDir}`);
+            for (const f of report.files) console.log(`  ${f.name}  ${f.sizeBytes} bytes  sha256 ${f.sha256}`);
+            if (report.identity) {
+                console.log(`  build ${report.identity.build} (${report.identity.displayId}): ${report.identity.knownAs ? `already known as ${report.identity.knownAs}` : 'not a firmware this tool knows yet'}`);
+            } else {
+                console.log(`  the read could not be analysed here (${report.analysisError}); the raw window is kept`);
+            }
+            console.log(`  report: ${path.join(outDir, CAPTURE_REPORT_FILE)}`);
+            console.log('\nZip that folder and share it privately with the Studio Pocket maintainers. It holds the player\'s stock system software and its eMMC id; not your music or settings.');
             return 0;
         }
         case 'prepare-device': {

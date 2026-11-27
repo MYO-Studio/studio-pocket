@@ -9,7 +9,7 @@ import { DRAM_CONFIG_LINE, ensureDownloadAgent, PRELOADER_DETECTED_LINE, Preload
 import { debugfsQuery, e2fsck } from './e2fs.js';
 import { InstallerError } from './errors.js';
 import { buildFlashPlan, checkCompatibility, type FlashPlan } from './flashplan.js';
-import { measureLayout, windowForManifest, writeLayout, type DeviceLayout } from './layout.js';
+import { LayoutError, measureLayout, windowForManifest, writeLayout, type DeviceLayout } from './layout.js';
 import { targetPartition, type FirmwareManifest } from './manifest.js';
 import { cidTail, HEAD_TAIL_BYTES, parseEmmcCid, parseMtkLine, readWindowPlan, UNCHECKED_TOOL_LINE, writePlan, type MtkProgress } from './mtk.js';
 import { patchSystemImage, quoteHostPath, TARGET_APK } from './patch.js';
@@ -101,6 +101,13 @@ export { InstallerError };
 
 /** The player already runs exactly the APK being installed; nothing was prepared. */
 export class UpToDateError extends InstallerError {}
+
+/**
+ * The read worked, but the player carries software this tool does not know (an unknown build), or
+ * its system partition is not where the known builds put it. Nothing is kept; capture-device
+ * (capture.ts) makes a read-only copy that support for it can be added from.
+ */
+export class UnsupportedFirmwareError extends InstallerError {}
 
 /** A write session was killed during its probe read: a different player answered. Nothing was written. */
 export class WrongPlayerError extends InstallerError {
@@ -296,7 +303,7 @@ export interface UpgradeReadReport {
 
 export type AnyDeviceReadReport = DeviceReadReport | UpgradeReadReport;
 
-function lastErrorLine(lines: string[]): string {
+export function lastErrorLine(lines: string[]): string {
     for (let i = lines.length - 1; i >= 0; i--) {
         const parsed = parseMtkLine(lines[i]!);
         if (parsed?.phase === 'error') return parsed.detail ?? lines[i]!;
@@ -304,7 +311,7 @@ function lastErrorLine(lines: string[]): string {
     return lines.slice(-3).join(' | ') || 'no output';
 }
 
-function keepTail(lines: string[]): string[] {
+export function keepTail(lines: string[]): string[] {
     return lines.length > MTK_LOG_KEEP ? lines.slice(-MTK_LOG_KEEP) : lines;
 }
 
@@ -314,7 +321,7 @@ function keepTail(lines: string[]): string[] {
  * file is named relative to plan.dir (mtkclient runs with that cwd), and the names below are
  * all space-free by construction.
  */
-function relativeToDeviceDir(file: string): string {
+export function relativeToDeviceDir(file: string): string {
     if (/\s/.test(file)) throw new InstallerError(`plan paths must not contain whitespace: ${file}`);
     return file;
 }
@@ -325,7 +332,7 @@ async function dropUpgradeReports(p: FirmwarePlatform, unitFolder: string): Prom
     await p.remove(p.join(unitFolder, UPGRADE_DIR, OUT_DIR, REPORT_FILE)).catch(() => undefined);
 }
 
-async function runPlan(p: FirmwarePlatform, plan: MtkPlan, onLine?: (progress: MtkProgress | null, line: string) => void, options?: { expectCid?: string }): Promise<{ result: RunResult; lines: string[]; emmcCid: string | null }> {
+export async function runPlan(p: FirmwarePlatform, plan: MtkPlan, onLine?: (progress: MtkProgress | null, line: string) => void, options?: { expectCid?: string }): Promise<{ result: RunResult; lines: string[]; emmcCid: string | null }> {
     for (const line of plan.lines) {
         if (line.split(' ').length !== 4) throw new InstallerError(`malformed plan line: ${line}`);
     }
@@ -394,7 +401,7 @@ async function removeStaleReads(p: FirmwarePlatform, firmwareDir: string): Promi
 }
 
 /** The files every mtkclient session is given by path: the download agent (fetched on first use) and the preloader override. */
-async function sessionFiles(p: FirmwarePlatform, firmwareDir: string, log: (line: string) => void, pin?: DownloadAgentPin): Promise<Pick<MtkPlan, 'daFile' | 'preloaderFile'>> {
+export async function sessionFiles(p: FirmwarePlatform, firmwareDir: string, log: (line: string) => void, pin?: DownloadAgentPin): Promise<Pick<MtkPlan, 'daFile' | 'preloaderFile'>> {
     const daFile = await ensureDownloadAgent(p, firmwareDir, log, pin ? { pin } : {});
     const preloaderFile = await preloaderOverride(p);
     return { daFile, ...(preloaderFile ? { preloaderFile } : {}) };
@@ -415,10 +422,13 @@ async function readIntoUnit(p: FirmwarePlatform, firmwareDir: string, manifests:
     if (!emmcCid) throw new InstallerError('could not identify the player (no eMMC id in the session); try again');
 
     cb.stage('measure');
-    const layout = await measureLayout(p, tmpWindow, window.start);
+    const layout = await measureLayout(p, tmpWindow, window.start).catch((e: unknown) => {
+        if (e instanceof LayoutError) throw new UnsupportedFirmwareError(`the player's system partition is not where this tool expects it: ${e.message}`);
+        throw e;
+    });
     cb.log(`system partition at ${layout.hex.androidStart} + ${layout.hex.androidSize} (ends ${layout.hex.androidEnd}); end marker ${layout.endMarker ? `present (${layout.endMarker.size} B partition follows)` : 'MISSING'}`);
     if (!layout.trustedForWrite) {
-        throw new InstallerError(`the partition after the system filesystem does not start where it should (${layout.hex.androidEnd}); this layout cannot be written safely`);
+        throw new UnsupportedFirmwareError(`the partition after the system filesystem does not start where it should (${layout.hex.androidEnd}); this layout cannot be written safely`);
     }
 
     const readImage = p.join(tmp, READ_IMAGE);
@@ -435,7 +445,8 @@ async function readIntoUnit(p: FirmwarePlatform, firmwareDir: string, manifests:
     const blocking = identity.problems.filter((problem) => !(installed && problem.startsWith(ALREADY_RUNS_STUDIO_POCKET)));
     if (!identity.manifest || blocking.length) {
         await p.remove(readImage).catch(() => undefined);
-        throw new InstallerError(`the player’s software is not one this tool can modify: ${blocking.join('; ') || 'unknown build'}`);
+        const message = `the player’s software is not one this tool can modify: ${blocking.join('; ') || 'unknown build'}`;
+        throw identity.manifest ? new InstallerError(message) : new UnsupportedFirmwareError(message);
     }
     if (installed) cb.log(`Studio Pocket is installed (${installed.sha256.slice(0, 16)}…): this read is the source of an upgrade; the kept original is not touched`);
 

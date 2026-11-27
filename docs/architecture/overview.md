@@ -45,6 +45,12 @@ steps:
 7. **Restore** is the same write with the kept original. **Upgrade** reads an installed player and
    swaps only the APK.
 
+**Unknown firmware.** When the read works but the build is not one of the manifests, or the system
+partition is not where they put it, `read-device` throws `UnsupportedFirmwareError` and keeps
+nothing. `capture-device` (`capture.ts`) reads the same window, read-only, and keeps the system image
+(or the raw window when it cannot be measured) with a `capture.json` report in a folder of its own,
+outside `units/`, whatever the build. A new manifest is written from that capture, as 3.2.4's was.
+
 **Upgrades.** `read-device` on a player that already runs Studio Pocket recognises it (known
 build, `/priv-app/StudioPocket.apk` present, stock launcher absent) and keeps that read apart, under
 the player's `upgrade/` folder, so it never replaces the player's kept stock copy. `prepare-upgrade`

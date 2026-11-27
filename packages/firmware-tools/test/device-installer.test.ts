@@ -11,11 +11,12 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { identifyDeviceImage, parseBuildProp } from '../src/device.js';
 import {
-    DEVICE_DIR, executeWrite, InstallerError, UncheckedToolError, UnconfirmedPlayerError, WrongPlayerError, loadDeviceReadReport, loadPrepareReport, loadUpgradePrepareReport, loadUpgradeReadReport, planFlash, planWrite, prepareInstallFromDevice, prepareUpgradeFromDevice, READ_IMAGE, readDeviceSystem, readInstallRecord, recordInstall, restoreAvailableFor, UNREADABLE_SIGNER_REFUSAL, UPGRADE_DIR, UpToDateError, verifyWrite, WINDOW_IMAGE,
+    DEVICE_DIR, executeWrite, InstallerError, UncheckedToolError, UnsupportedFirmwareError, UnconfirmedPlayerError, WrongPlayerError, loadDeviceReadReport, loadPrepareReport, loadUpgradePrepareReport, loadUpgradeReadReport, planFlash, planWrite, prepareInstallFromDevice, prepareUpgradeFromDevice, READ_IMAGE, readDeviceSystem, readInstallRecord, recordInstall, restoreAvailableFor, UNREADABLE_SIGNER_REFUSAL, UPGRADE_DIR, UpToDateError, verifyWrite, WINDOW_IMAGE,
     type DeviceReadCallbacks, type PrepareCallbacks,
 } from '../src/installer.js';
 import { DownloadAgentError, downloadAgentPin, PRELOADER_NEEDED, PreloaderNeededError } from '../src/da.js';
 import { measureLayout, windowForManifest } from '../src/layout.js';
+import { CAPTURE_REPORT_FILE, CAPTURE_SYSTEM_FILE, CAPTURE_WINDOW_FILE, captureDevice, type CaptureReport } from '../src/capture.js';
 import type { FirmwareManifest } from '../src/manifest.js';
 import { patchSystemImage } from '../src/patch.js';
 import { debugfsScript, findTool, loadManifest, locateE2fsTools, nodePlatform, run, sha256File } from '../src/node.js';
@@ -140,6 +141,87 @@ describe.skipIf(!available)('device-sourced installer', () => {
     afterEach(async () => {
         await rm(dir, { recursive: true, force: true });
         for (const k of envKeys) { const v = savedEnv[k]; if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    });
+
+    describe('capture-device', () => {
+        it('keeps the system image of a build this tool does not know, reading only the read-device window', async () => {
+            const rig = await buildRig(dir, { build: '1799999999' });
+            process.env.FAKE_MTK_DEVICE = rig.device;
+            const before = await sha256File(rig.device);
+            const out = path.join(dir, 'capture out');
+            const rc = readCb();
+            const report = await captureDevice(nodePlatform, { firmwareDir: rig.firmwareDir, outDir: out, manifests: [rig.manifest] }, rc);
+
+            expect(await sha256File(rig.device)).toBe(before);
+            const plan = (await readFile(path.join(out, 'capture.mtk'), 'utf8')).trim().split('\n');
+            const { start, length } = windowForManifest(rig.manifest);
+            expect(plan).toEqual([`ro 0x${start.toString(16)} 0x${length.toString(16)} ${CAPTURE_WINDOW_FILE}`]);
+            expect(rc.stages).toEqual(['read', 'measure', 'extract', 'identify', 'done']);
+
+            expect(report.analysisError).toBeNull();
+            expect(report.identity).toMatchObject({ build: '1799999999', displayId: 'Y2-v9.9.9', knownAs: null });
+            expect(report.identity?.problems.some((x) => x.includes('not a firmware this tool knows'))).toBe(true);
+            expect(report.identity?.launcher).toMatchObject({ sizeBytes: 200 * 1024, sha256: await sha256File(rig.launcher) });
+            expect(report.layout?.android).toMatchObject({ start: SYSTEM_LINEAR, size: SYSTEM_MB << 20 });
+            expect(report.emmcCid).toBe(CID);
+
+            const system = path.join(out, CAPTURE_SYSTEM_FILE);
+            expect(await sha256File(system)).toBe(await sha256File(rig.systemImage));
+            expect(report.files).toEqual([{ name: CAPTURE_SYSTEM_FILE, sizeBytes: SYSTEM_MB << 20, sha256: await sha256File(rig.systemImage) }]);
+            expect(await stat(path.join(out, CAPTURE_WINDOW_FILE)).catch(() => null)).toBeNull();
+            const saved = JSON.parse(await readFile(path.join(out, CAPTURE_REPORT_FILE), 'utf8')) as CaptureReport;
+            expect(saved.identity?.build).toBe('1799999999');
+            // A capture is not a read: the installer's units/ stay untouched.
+            expect(await listUnits(nodePlatform, rig.firmwareDir)).toEqual([]);
+        });
+
+        it('names a known build and keeps the raw window when the layout cannot be measured', async () => {
+            await mkdir(path.join(dir, 'known'));
+            const known = await buildRig(path.join(dir, 'known'));
+            process.env.FAKE_MTK_DEVICE = known.device;
+            const k = await captureDevice(nodePlatform, { firmwareDir: known.firmwareDir, outDir: path.join(dir, 'k'), manifests: [known.manifest] }, readCb());
+            expect(k.identity?.knownAs).toBe('synthetic');
+
+            const blank = path.join(dir, 'blank emmc.bin');
+            const fh = await open(blank, 'w'); await fh.truncate((await stat(known.device)).size); await fh.close();
+            process.env.FAKE_MTK_DEVICE = blank;
+            const out = path.join(dir, 'b');
+            const b = await captureDevice(nodePlatform, { firmwareDir: known.firmwareDir, outDir: out, manifests: [known.manifest] }, readCb());
+            expect(b.analysisError).toMatch(/no ext4 superblock/);
+            expect(b.identity).toBeNull();
+            expect(b.files.map((f) => f.name)).toEqual([CAPTURE_WINDOW_FILE]);
+            expect(await stat(path.join(out, CAPTURE_SYSTEM_FILE)).catch(() => null)).toBeNull();
+        });
+
+        it('is what read-device points to: an unknown build or an unexpected layout is an UnsupportedFirmwareError', async () => {
+            const rig = await buildRig(dir, { build: '1799999999' });
+            process.env.FAKE_MTK_DEVICE = rig.device;
+            await expect(readDeviceSystem(nodePlatform, { firmwareDir: rig.firmwareDir, manifests: [rig.manifest] }, readCb())).rejects.toBeInstanceOf(UnsupportedFirmwareError);
+
+            await mkdir(path.join(dir, 'no marker'));
+            const moved = await buildRig(path.join(dir, 'no marker'), { endMarker: false });
+            process.env.FAKE_MTK_DEVICE = moved.device;
+            await expect(readDeviceSystem(nodePlatform, { firmwareDir: moved.firmwareDir, manifests: [moved.manifest] }, readCb())).rejects.toBeInstanceOf(UnsupportedFirmwareError);
+
+            const blank = path.join(dir, 'blank emmc.bin');
+            const fh = await open(blank, 'w'); await fh.truncate((await stat(rig.device)).size); await fh.close();
+            process.env.FAKE_MTK_DEVICE = blank;
+            await expect(readDeviceSystem(nodePlatform, { firmwareDir: rig.firmwareDir, manifests: [rig.manifest] }, readCb())).rejects.toBeInstanceOf(UnsupportedFirmwareError);
+        });
+
+        it('refuses a folder that is not empty, and keeps nothing from a failed read', async () => {
+            const rig = await buildRig(dir);
+            process.env.FAKE_MTK_DEVICE = rig.device;
+            const used = path.join(dir, 'used');
+            await mkdir(used); await writeFile(path.join(used, 'x'), 'x');
+            await expect(captureDevice(nodePlatform, { firmwareDir: rig.firmwareDir, outDir: used, manifests: [rig.manifest] }, readCb())).rejects.toThrow(/not empty/);
+
+            process.env.FAKE_MTK_FAIL = '1';
+            const out = path.join(dir, 'failed');
+            await expect(captureDevice(nodePlatform, { firmwareDir: rig.firmwareDir, outDir: out, manifests: [rig.manifest] }, readCb())).rejects.toThrow(/could not read the player/);
+            expect(await stat(path.join(out, CAPTURE_WINDOW_FILE)).catch(() => null)).toBeNull();
+            expect(await stat(path.join(out, CAPTURE_REPORT_FILE)).catch(() => null)).toBeNull();
+        });
     });
 
     it('reads, measures, identifies, prepares, writes and verifies; then restores', async () => {
